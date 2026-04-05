@@ -3,7 +3,9 @@
 **/backend/build*
 **/backend/gradle
 **/backend/node_modules/
+**/backend/src/main/resources/application.properties
 **/gradle*
+**workspace*
 **gradle*
 **/.DS_Store
 **/node_modules/
