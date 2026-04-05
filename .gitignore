@@ -1,0 +1,13 @@
+**/backend/node_modules/
+**/backend/bin
+**/backend/build*
+**/backend/gradle
+**/backend/node_modules/
+**/gradle*
+**gradle*
+**/.DS_Store
+**/node_modules/
+**/dist/
+**/.vercel/
+**/.next/
+*.zip
