@@ -137,7 +137,7 @@ public class GameRoom {
         maintainTeamBalance();
 
         for (NpcBot bot : bots) {
-            InputFrame botInput = bot.buildInput(now, activePlayers.values());
+            InputFrame botInput = bot.buildInput(now, activePlayers.values(), destructibles);
             if (botInput != null) bot.player.lastInput = botInput;
         }
 

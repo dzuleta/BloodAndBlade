@@ -80,14 +80,14 @@ watch(
   <!-- Temporizador de Ronda -->
   <div class="round-timer">
     <div class="timer-value">{{ formatTime(roundTimeLeft) }}</div>
-    <div class="timer-label">OBJETIVO: {{ currentTeam === 'BARBARIAN' ? 'DESTRUIR CASTILLO' : 'DEFENDER CASTILLO' }}</div>
+    <div class="timer-label">OBJETIVE: {{ currentTeam === 'BARBARIAN' ? 'DESTROY CASTLE' : 'DEFEND CASTLE' }}</div>
   </div>
 
   <!-- Barra de vida -->
   <div class="hud-health-container">
     <div class="hp-info">
       <span class="hp-name" :class="currentTeam?.toLowerCase()">
-        <span class="team-tag">{{ currentTeam === 'BARBARIAN' ? 'BARBARO' : 'CABALLERO' }}</span>
+        <span class="team-tag">{{ currentTeam === 'BARBARIAN' ? 'BARBARIAN' : 'KNIGHT' }}</span>
         {{ localPlayer?.name || 'HERO' }}
       </span>
       <span class="hp-values">{{ localPlayer?.health ?? 0 }} / {{ localPlayer?.maxHealth ?? 100 }}</span>
@@ -108,7 +108,7 @@ watch(
       <span v-if="blockBanner === 'you_blocked'" class="block-icon">✓</span>
       <span v-else class="block-icon">✕</span>
       <span class="block-text">
-        {{ blockBanner === 'you_blocked' ? 'Bloqueaste el golpe' : 'Te bloquearon' }}
+        {{ blockBanner === 'you_blocked' ? 'You blocked the blow' : 'They blocked you' }}
       </span>
     </div>
   </Transition>
