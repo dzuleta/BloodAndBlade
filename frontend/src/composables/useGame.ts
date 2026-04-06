@@ -25,6 +25,12 @@ type KayKitTemplates = {
   swordKnight: THREE.Object3D
 }
 
+type SharedClips = {
+  idle: THREE.AnimationClip | null
+  walk: THREE.AnimationClip | null
+  run: THREE.AnimationClip | null
+}
+
 /** Grados → radianes (siempre usando Math.PI) */
 const rad = (deg: number) => (deg * Math.PI) / 180
 
@@ -114,6 +120,8 @@ export function useGame(canvas: HTMLCanvasElement) {
   const remoteMeshes = new Map<string, THREE.Group>()
   /** Plantillas FBX KayKit (null hasta que cargue loadKayKitAssets) */
   let kayKitTemplates: KayKitTemplates | null = null
+  const sharedClips: SharedClips = { idle: null, walk: null, run: null }
+  const mixers = new Map<string, THREE.AnimationMixer>()
 
   // ─── Estado de interpolación ─────────────────────────────────────────────
   const snapshotBuffer: SnapshotEntry[] = []
@@ -355,6 +363,14 @@ export function useGame(canvas: HTMLCanvasElement) {
     const c = cloneSkinned(tpl)
     c.rotateY(KAYKIT_BODY_YAW_OFFSET)
     body.add(c)
+
+    // Configurar Animación
+    if (sharedClips.idle) {
+      const mixer = new THREE.AnimationMixer(c)
+      const action = mixer.clipAction(sharedClips.idle)
+      action.play()
+      mixers.set(playerId === '__preview__' ? localIdForModels() : playerId, mixer)
+    }
   }
 
   /**
@@ -429,8 +445,21 @@ export function useGame(canvas: HTMLCanvasElement) {
       barbarian: barFbx,
       knight: knightFbx,
       swordBarbarian: swordBar,
-      swordKnight,
-    }
+      swordKnight: swordKnight
+    };
+
+    // --- CARGAR ANIMACIONES ---
+    const [genRig, movRig] = await Promise.all([
+      fbx.loadAsync(url('Rig_Medium_General.fbx')),
+      fbx.loadAsync(url('Rig_Medium_MovementBasic.fbx')),
+    ])
+
+    const findClip = (fbx: THREE.Group, namePart: string) => 
+      fbx.animations.find(a => a.name.toLowerCase().includes(namePart.toLowerCase()))
+
+    sharedClips.idle = findClip(genRig, 'Idle') || genRig.animations[0]
+    sharedClips.walk = findClip(movRig, 'Walk') || movRig.animations[0]
+    sharedClips.run = findClip(movRig, 'Run') || movRig.animations[0]
 
     refreshCharacterMeshes()
   }
@@ -737,7 +766,8 @@ export function useGame(canvas: HTMLCanvasElement) {
       tPos = REMOTE_REST.pos; tRotX = 0; tRotY = 0; tRotZ = 0
     }
 
-    const f = phase === 'BLOCKED' ? 1 : (1 - Math.pow(0.001, dt))
+    // Antes 0.001 (muy rápido), subimos a 0.05 para sentir el peso del arma
+    const f = phase === 'BLOCKED' ? 1 : (1 - Math.pow(0.05, dt))
     sword.position.lerp(tPos, f)
     sword.rotation.x += (tRotX - sword.rotation.x) * f
     sword.rotation.y += (tRotY - sword.rotation.y) * f
@@ -747,7 +777,9 @@ export function useGame(canvas: HTMLCanvasElement) {
   // ─── Predicción local de movimiento ──────────────────────────────────────
   const MOVE_SPEED = 6.0
 
+  let lastDx = 0, lastDz = 0
   function applyLocalMovement(dx: number, dz: number, yawRad: number, pitchRad: number, dt: number) {
+    lastDx = dx; lastDz = dz
     localYaw = yawRad
     localPitch = pitchRad
 
@@ -912,6 +944,15 @@ export function useGame(canvas: HTMLCanvasElement) {
       if (rp) {
         animateRemoteSword(mesh, rp.swingPhase, rp.swingDir, rp.blocking, rp.blockDir, dt)
       }
+
+      // Animación de cuerpo (Locomoción)
+      const mixer = mixers.get(id)
+      if (mixer && sharedClips.walk && sharedClips.idle) {
+        const velSq = pBefore && pAfter ? 
+          (Math.pow(pAfter.x - pBefore.x, 2) + Math.pow(pAfter.z - pBefore.z, 2)) : 0
+        const isMoving = velSq > 0.0001
+        updateMixerState(mixer, isMoving)
+      }
     })
 
     // Limpiar meshes de jugadores desconectados
@@ -919,8 +960,27 @@ export function useGame(canvas: HTMLCanvasElement) {
       if (!before!.players.has(id)) {
         scene.remove(mesh)
         remoteMeshes.delete(id)
+        mixers.delete(id)
       }
     })
+  }
+
+  function updateMixerState(mixer: THREE.AnimationMixer, isMoving: boolean) {
+    if (!sharedClips.idle || !sharedClips.walk) return
+    const idleAction = mixer.clipAction(sharedClips.idle)
+    const walkAction = mixer.clipAction(sharedClips.walk)
+    
+    if (isMoving) {
+      if (idleAction.weight > 0.5) {
+        idleAction.crossFadeTo(walkAction, 0.25, true)
+        walkAction.play()
+      }
+    } else {
+      if (walkAction.weight > 0.5) {
+        walkAction.crossFadeTo(idleAction, 0.25, true)
+        idleAction.play()
+      }
+    }
   }
 
   // ─── Animación de espada local ────────────────────────────────────────────
@@ -935,8 +995,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     const now = performance.now()
     const strikeBoost = now < swordStrikeBoostUntil
     const rigid = swordBlockedRigid
-    // Base más pequeña → factor más alto → transición más viva en RELEASE
-    const t = strikeBoost ? 0.004 : 0.01
+    // t es la fracción de distancia restante por segundo. 
+    // Subir de 0.01 -> 0.1 hace que la espada se sienta mucho más pesada y lenta.
+    const t = strikeBoost ? 0.06 : 0.12
     const smooth = rigid ? 1 : (1 - Math.pow(t, dt))
     swordGroup.position.lerp(swordTargetPos, smooth)
     swordGroup.rotation.x += (swordTargetRot.x - swordGroup.rotation.x) * smooth
@@ -948,7 +1009,7 @@ export function useGame(canvas: HTMLCanvasElement) {
   function setSwordAnimation(phase: string, dir: string, blocking: boolean, blockDir: string) {
     const now = performance.now()
     swordBlockedRigid = phase === 'BLOCKED'
-    swordStrikeBoostUntil = !blocking && phase === 'RELEASE' ? now + 0.28 : 0
+    swordStrikeBoostUntil = !blocking && phase === 'RELEASE' ? now + 0.50 : 0
 
     const key = dir as keyof typeof SWING_RELEASE_DIRS
 
@@ -969,10 +1030,10 @@ export function useGame(canvas: HTMLCanvasElement) {
       swordTargetPos = fpSwordPos(0.12, -0.15, -0.58)
       swordTargetRot = new THREE.Euler(rad(-3), rad(16), rad(-20))
     } else {
-      // IDLE / RECOVERY → volver a guardia fija; lerp más vivo un instante para no quedar en pose de tajo
+      // IDLE / RECOVERY → volver a guardia fija; ampliado el boost para el retorno lento
       swordTargetPos = SWING_REST.pos.clone()
       swordTargetRot = SWING_REST.rot.clone()
-      swordStrikeBoostUntil = now + 0.32
+      swordStrikeBoostUntil = now + 0.45
     }
   }
 
@@ -1013,13 +1074,23 @@ export function useGame(canvas: HTMLCanvasElement) {
       const dt = Math.min((now - lastTime) / 1000, 0.05)
       lastTime = now
 
-      onFrame(dt)
-      interpolateRemotes(dt)
-      animateSword(dt)
-      updateLocalPlayerAvatar()
-      updateThirdPersonCamera()
-      updateHitBursts(dt)
-      renderer.render(scene, thirdPerson.value ? cameraThird : camera)
+      onFrame(dt);
+      interpolateRemotes(dt);
+      animateSword(dt);
+      updateLocalPlayerAvatar();
+      updateThirdPersonCamera();
+      updateHitBursts(dt);
+
+      // Animación de cuerpo (Locomoción Local)
+      const locId = localIdForModels();
+      const locMixer = mixers.get(locId);
+      if (locMixer) {
+        const isLocMoving = Math.abs(lastDx) > 0.1 || Math.abs(lastDz) > 0.1;
+        updateMixerState(locMixer, isLocMoving);
+      }
+      mixers.forEach(m => m.update(dt));
+
+      renderer.render(scene, thirdPerson.value ? cameraThird : camera);
 
       frameCount++
       fpsTime += dt
