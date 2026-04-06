@@ -131,6 +131,8 @@ export function useGame(canvas: HTMLCanvasElement) {
   let swordTargetRot = SWING_REST.rot.clone()
   /** Durante BLOCKED: sin suavizado, la espada queda fija en la pose de rechazo */
   let swordBlockedRigid = false
+  /** Ventana en que el RELEASE interpola más fuerte (lectura del swing al soltar) */
+  let swordStrikeBoostUntil = 0
 
   // 1ª persona: swordGroup hijo de swordYawPivot (ojos, solo yaw); origen local (0,0,0) ≈ frente al pecho; hoja en +Y del grupo. No pitch del ratón.
   // fpSwordPos(xRight, zUp, yDepth) → THREE.Vector3; Euler en rad vía rad() o Math.PI.
@@ -232,9 +234,6 @@ export function useGame(canvas: HTMLCanvasElement) {
     DOWN: remoteSwordPoseFromFp(BLOCK_DIRS.DOWN),
   }
   const REMOTE_REST = remoteSwordPoseFromFp(SWING_REST)
-
-  /** ~63% hacia la pose en 2s con lerp exponencial (1 − e^(−dt/τ)); alineado con release-ms del servidor */
-  const SWORD_BLEND_TAU_SEC = 0.95
 
   // ─── Loop ────────────────────────────────────────────────────────────────
   let animId = 0
@@ -358,16 +357,13 @@ export function useGame(canvas: HTMLCanvasElement) {
     body.add(c)
   }
 
-  /** Rellena el grupo contenedor de la espada (1ª persona o avatar 3ª / remoto) */
-  function mountKayKitSword(into: THREE.Group, playerId: string) {
+  /**
+   * Espada visible: siempre la procedural (cajas) para que coincida con SWING_* y se sienta como antes.
+   * El FBX KayKit queda desactivado aquí (más chico / otro pivote); los personajes siguen siendo KayKit si hay assets.
+   */
+  function mountKayKitSword(into: THREE.Group, _playerId: string) {
     into.clear()
-    if (!kayKitTemplates) {
-      into.add(buildSword())
-      return
-    }
-    const v = playerVariant(playerId)
-    const blade = cloneSkinned(v === 'knight' ? kayKitTemplates.swordKnight : kayKitTemplates.swordBarbarian)
-    into.add(blade)
+    into.add(buildSword())
   }
 
   function localIdForModels(): string {
@@ -684,7 +680,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       tPos = REMOTE_REST.pos; tRotX = 0; tRotY = 0; tRotZ = 0
     }
 
-    const f = phase === 'BLOCKED' ? 1 : (1 - Math.exp(-dt / SWORD_BLEND_TAU_SEC))
+    const f = phase === 'BLOCKED' ? 1 : (1 - Math.pow(0.001, dt))
     sword.position.lerp(tPos, f)
     sword.rotation.x += (tRotX - sword.rotation.x) * f
     sword.rotation.y += (tRotY - sword.rotation.y) * f
@@ -877,8 +873,12 @@ export function useGame(canvas: HTMLCanvasElement) {
     swordYawPivot.rotation.x = 0
     swordYawPivot.rotation.z = 0
 
+    const now = performance.now()
+    const strikeBoost = now < swordStrikeBoostUntil
     const rigid = swordBlockedRigid
-    const smooth = rigid ? 1 : (1 - Math.exp(-dt / SWORD_BLEND_TAU_SEC))
+    // Base más pequeña → factor más alto → transición más viva en RELEASE
+    const t = strikeBoost ? 0.004 : 0.01
+    const smooth = rigid ? 1 : (1 - Math.pow(t, dt))
     swordGroup.position.lerp(swordTargetPos, smooth)
     swordGroup.rotation.x += (swordTargetRot.x - swordGroup.rotation.x) * smooth
     swordGroup.rotation.y += (swordTargetRot.y - swordGroup.rotation.y) * smooth
@@ -887,7 +887,9 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   // Animación basada en estado del servidor (WINDUP / RELEASE distintos; RECOVERY / BLOCKED)
   function setSwordAnimation(phase: string, dir: string, blocking: boolean, blockDir: string) {
+    const now = performance.now()
     swordBlockedRigid = phase === 'BLOCKED'
+    swordStrikeBoostUntil = !blocking && phase === 'RELEASE' ? now + 0.28 : 0
 
     const key = dir as keyof typeof SWING_RELEASE_DIRS
 
@@ -908,8 +910,10 @@ export function useGame(canvas: HTMLCanvasElement) {
       swordTargetPos = fpSwordPos(0.12, -0.15, -0.58)
       swordTargetRot = new THREE.Euler(rad(-3), rad(16), rad(-20))
     } else {
+      // IDLE / RECOVERY → volver a guardia fija; lerp más vivo un instante para no quedar en pose de tajo
       swordTargetPos = SWING_REST.pos.clone()
       swordTargetRot = SWING_REST.rot.clone()
+      swordStrikeBoostUntil = now + 0.32
     }
   }
 
