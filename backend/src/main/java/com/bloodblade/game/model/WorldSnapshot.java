@@ -8,6 +8,8 @@ public class WorldSnapshot {
     public long tick;
     public long serverTime;
     public List<PlayerState> players;
+    public List<DestructibleState> worldObjects;
+    public long roundTimeLeft;
 
     public static class PlayerState {
         public String id;
@@ -23,5 +25,13 @@ public class WorldSnapshot {
         public float momentum;
         public int kills;
         public int deaths;
+        public String team;
+    }
+
+    public static class DestructibleState {
+        public String id;
+        public String type;
+        public double x, z, width, depth;
+        public int health, maxHealth;
     }
 }

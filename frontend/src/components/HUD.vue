@@ -8,7 +8,16 @@ const props = defineProps<{
   events: GameEvent[]
   fps: number
   ping: number
+  roundTimeLeft: number
+  currentTeam: string
 }>()
+
+function formatTime(ms: number) {
+  const totalSec = Math.ceil(ms / 1000)
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return `${min}:${sec.toString().padStart(2, '0')}`
+}
 
 const topPlayers = computed(() =>
   [...props.players].sort((a, b) => b.kills - a.kills).slice(0, 8)
@@ -68,10 +77,19 @@ watch(
 </script>
 
 <template>
+  <!-- Temporizador de Ronda -->
+  <div class="round-timer">
+    <div class="timer-value">{{ formatTime(roundTimeLeft) }}</div>
+    <div class="timer-label">OBJETIVO: {{ currentTeam === 'BARBARIAN' ? 'DESTRUIR CASTILLO' : 'DEFENDER CASTILLO' }}</div>
+  </div>
+
   <!-- Barra de vida -->
   <div class="hud-health-container">
     <div class="hp-info">
-      <span class="hp-name">{{ localPlayer?.name || 'HERO' }}</span>
+      <span class="hp-name" :class="currentTeam?.toLowerCase()">
+        <span class="team-tag">{{ currentTeam === 'BARBARIAN' ? 'BARBARO' : 'CABALLERO' }}</span>
+        {{ localPlayer?.name || 'HERO' }}
+      </span>
       <span class="hp-values">{{ localPlayer?.health ?? 0 }} / {{ localPlayer?.maxHealth ?? 100 }}</span>
     </div>
     <div class="hp-bar-bg">
@@ -164,6 +182,34 @@ watch(
   font-family: 'Outfit', sans-serif;
 }
 
+/* ── Temporizador ────────────────────────────────────────── */
+.round-timer {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.timer-value {
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(0,0,0,0.8);
+}
+
+.timer-label {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #c8a860;
+  margin-top: -4px;
+  opacity: 0.8;
+}
+
 /* ── Barra de vida ─────────────────────────────────────── */
 .hud-health-container {
   position: absolute;
@@ -188,8 +234,19 @@ watch(
   letter-spacing: 3px;
   color: #fff;
   text-transform: uppercase;
-  opacity: 0.9;
+  display: flex;
+  flex-direction: column;
 }
+
+.team-tag {
+  font-size: 9px;
+  letter-spacing: 2px;
+  margin-bottom: 2px;
+  opacity: 0.7;
+}
+
+.hp-name.barbarian { color: #ff8833; }
+.hp-name.knight { color: #44aaff; }
 
 .hp-values {
   font-size: 14px;

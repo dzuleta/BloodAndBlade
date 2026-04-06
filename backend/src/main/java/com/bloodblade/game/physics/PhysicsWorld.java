@@ -109,4 +109,24 @@ public class PhysicsWorld {
 
         return new HitResult(true, zone, attacker.stamina);
     }
+
+    public boolean detectDestructibleHit(Player attacker, com.bloodblade.game.model.Destructible d) {
+        if (!attacker.alive || !d.alive()) return false;
+
+        // AABB simplificado (rectángulo x-z)
+        double dx = Math.max(d.x - d.width/2.0, Math.min(attacker.x, d.x + d.width/2.0));
+        double dz = Math.max(d.z - d.depth/2.0, Math.min(attacker.z, d.z + d.depth/2.0));
+        
+        double distX = attacker.x - dx;
+        double distZ = attacker.z - dz;
+        double distSq = distX * distX + distZ * distZ;
+
+        if (distSq > hitReach * hitReach) return false;
+
+        // Arco frontal
+        double sinY = Math.sin(attacker.yaw);
+        double cosY = Math.cos(attacker.yaw);
+        double fwdDot = (dx - attacker.x) * sinY + (dz - attacker.z) * (-cosY);
+        return fwdDot > 0;
+    }
 }

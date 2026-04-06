@@ -7,7 +7,8 @@ public class GameConfig {
     public int maxPlayers = 64;
     public int tickRateHz = 20;
     public double worldWidth = 80.0;
-    public double worldDepth = 80.0;
+    public double worldDepth = 160.0;
+    public long roundDurationMs = 300000;    // 5 minutos
     public double moveSpeed = 6.0;
     public double playerHeight = 1.8;
     public double playerRadius = 0.35;

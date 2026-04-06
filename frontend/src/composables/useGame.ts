@@ -7,7 +7,8 @@ import type { WorldSnapshot, RemotePlayer } from '../types/protocol'
 
 const PLAYER_HEIGHT = 1.8
 const INTERP_DELAY_MS = 120
-const WORLD_SIZE = 80
+let WORLD_SIZE_W = 80
+let WORLD_SIZE_D = 160
 
 /** KayKit Adventurers (FBX + texturas en /public/models/kaykit) */
 const KAYKIT_BASE = '/models/kaykit/'
@@ -61,6 +62,9 @@ interface SnapshotEntry {
 export function useGame(canvas: HTMLCanvasElement) {
   const fps = ref(0)
   const localId = ref('')
+  const localPlayerTeam = ref('')
+  const roundTimeLeft = ref(0)
+  const destructibleMeshes = new Map<string, THREE.Mesh>()
 
   // ─── Three.js core ────────────────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
@@ -79,15 +83,15 @@ export function useGame(canvas: HTMLCanvasElement) {
   const sunPosition = new THREE.Vector3()
   function updateSky() {
     const uniforms = sky.material.uniforms;
-    uniforms[ 'turbidity' ].value = 10;
-    uniforms[ 'rayleigh' ].value = 3;
-    uniforms[ 'mieCoefficient' ].value = 0.005;
-    uniforms[ 'mieDirectionalG' ].value = 0.7;
+    uniforms['turbidity'].value = 10;
+    uniforms['rayleigh'].value = 3;
+    uniforms['mieCoefficient'].value = 0.005;
+    uniforms['mieDirectionalG'].value = 0.7;
 
-    const phi = THREE.MathUtils.degToRad( 90 - 4 ); // Altura del sol (atardecer)
-    const theta = THREE.MathUtils.degToRad( 180 );
-    sunPosition.setFromSphericalCoords( 1, phi, theta );
-    uniforms[ 'sunPosition' ].value.copy( sunPosition );
+    const phi = THREE.MathUtils.degToRad(90 - 4); // Altura del sol (atardecer)
+    const theta = THREE.MathUtils.degToRad(180);
+    sunPosition.setFromSphericalCoords(1, phi, theta);
+    uniforms['sunPosition'].value.copy(sunPosition);
   }
   updateSky()
 
@@ -129,12 +133,12 @@ export function useGame(canvas: HTMLCanvasElement) {
   groundTex.repeat.set(24, 24)
   groundTex.colorSpace = THREE.SRGBColorSpace
 
-  const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE * 2, WORLD_SIZE * 2)
-  const groundMat = new THREE.MeshStandardMaterial({ 
+  const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE_W * 2, WORLD_SIZE_D * 2)
+  const groundMat = new THREE.MeshStandardMaterial({
     map: groundTex,
     roughness: 1,
     metalness: 0,
-    color: 0x555555 
+    color: 0x555555
   })
   const ground = new THREE.Mesh(groundGeo, groundMat)
   ground.rotation.x = -Math.PI / 2
@@ -163,6 +167,23 @@ export function useGame(canvas: HTMLCanvasElement) {
   // ─── Estado de interpolación ─────────────────────────────────────────────
   const snapshotBuffer: SnapshotEntry[] = []
   const localSnapshot = shallowRef<WorldSnapshot | null>(null)
+
+  function onWelcome(pid: string, w: number, d: number, teamStr: string) {
+    localId.value = pid
+    localPlayerTeam.value = teamStr
+    WORLD_SIZE_W = w
+    WORLD_SIZE_D = d
+    
+    // Reconstruir terreno
+    ground.geometry.dispose()
+    ground.geometry = new THREE.PlaneGeometry(w, d)
+    ground.material.map!.repeat.set(w / 4, d / 4)
+    
+    // Reconstruir arena
+    scene.children.filter(c => c.userData.isWall).forEach(c => scene.remove(c))
+    buildArena()
+    refreshCharacterMeshes()
+  }
 
   // Posición local (predicción del cliente)
   let localX = 0
@@ -205,11 +226,11 @@ export function useGame(canvas: HTMLCanvasElement) {
     },
     RIGHT: {
       pos: fpSwordPos(0.5, +0.15, -0.30),
-      rot: new THREE.Euler(0,0, rad(-70)),
+      rot: new THREE.Euler(0, 0, rad(-70)),
     },
     LEFT: {
       pos: fpSwordPos(-0.5, +0.15, -0.30),
-      rot: new THREE.Euler(0,0, rad(70)),
+      rot: new THREE.Euler(0, 0, rad(70)),
     },
   }
   const SWING_RELEASE_DIRS = {
@@ -232,7 +253,7 @@ export function useGame(canvas: HTMLCanvasElement) {
   }
   const BLOCK_DIRS = {
     RIGHT: { pos: fpSwordPos(0.8, -0.3, -0.62), rot: new THREE.Euler(0, 0, 0) },
-    LEFT:  { pos: fpSwordPos(-0.8, -0.3, -0.62), rot: new THREE.Euler(0, 0, 0) },
+    LEFT: { pos: fpSwordPos(-0.8, -0.3, -0.62), rot: new THREE.Euler(0, 0, 0) },
     UP: {
       pos: fpSwordPos(0.5, 0.62, -0.52),
       rot: new THREE.Euler(0, 0, rad(90)),
@@ -291,9 +312,9 @@ export function useGame(canvas: HTMLCanvasElement) {
 
     // Hoja (+50% largo respecto a 0.88u → 1.32u)
     const bladeGeo = new THREE.BoxGeometry(0.06, 1.32, 0.06)
-    const bladeMat = new THREE.MeshStandardMaterial({ 
-      color: 0xffffff, 
-      metalness: 1.0, 
+    const bladeMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 1.0,
       roughness: 0.15,
       envMapIntensity: 1.0
     })
@@ -304,10 +325,10 @@ export function useGame(canvas: HTMLCanvasElement) {
 
     // Guardamano
     const guardGeo = new THREE.BoxGeometry(0.30, 0.05, 0.055)
-    const guardMat = new THREE.MeshStandardMaterial({ 
-      color: 0xffcc33, 
-      metalness: 1.0, 
-      roughness: 0.2 
+    const guardMat = new THREE.MeshStandardMaterial({
+      color: 0xffcc33,
+      metalness: 1.0,
+      roughness: 0.2
     })
     const guard = new THREE.Mesh(guardGeo, guardMat)
     guard.position.y = -0.02
@@ -323,10 +344,16 @@ export function useGame(canvas: HTMLCanvasElement) {
     return group
   }
 
-  /** Caballero = jugador local; bárbaro = todos los demás (incl. bots). */
   function playerVariant(playerId: string): 'barbarian' | 'knight' {
-    if (playerId === '__preview__') return 'knight'
-    if (localId.value.length > 0 && playerId === localId.value) return 'knight'
+    if (playerId === '__preview__') return (localPlayerTeam.value === 'BARBARIAN' ? 'barbarian' : 'knight')
+    if (localId.value.length > 0 && playerId === localId.value) return (localPlayerTeam.value === 'BARBARIAN' ? 'barbarian' : 'knight')
+    
+    // Si es un remoto, intentar obtener su equipo del último snapshot
+    const snap = localSnapshot.value
+    if (snap) {
+      const p = snap.players.find(rp => rp.id === playerId)
+      if (p && p.team) return (p.team === 'BARBARIAN' ? 'barbarian' : 'knight')
+    }
     return 'barbarian'
   }
 
@@ -337,7 +364,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
       for (const mat of mats) {
         if (mat && 'map' in mat) {
-          ;(mat as THREE.MeshStandardMaterial).map = map
+          ; (mat as THREE.MeshStandardMaterial).map = map
           mat.needsUpdate = true
         }
       }
@@ -500,7 +527,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       fbx.loadAsync(url('Rig_Medium_MovementBasic.fbx')),
     ])
 
-    const findClip = (fbx: THREE.Group, namePart: string) => 
+    const findClip = (fbx: THREE.Group, namePart: string) =>
       fbx.animations.find(a => a.name.toLowerCase().includes(namePart.toLowerCase()))
 
     sharedClips.idle = findClip(genRig, 'Idle') || genRig.animations[0]
@@ -621,7 +648,7 @@ export function useGame(canvas: HTMLCanvasElement) {
         b.g.children.forEach((c) => {
           const mesh = c as THREE.Mesh
           mesh.geometry.dispose()
-          ;(mesh.material as THREE.Material).dispose()
+            ; (mesh.material as THREE.Material).dispose()
         })
         hitBursts.splice(i, 1)
       }
@@ -642,7 +669,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       const ctx = hitAudioCtx
       if (ctx.state === 'suspended') void ctx.resume()
       const t0 = ctx.currentTime
-      
+
       // Metallic "ting"
       const osc = ctx.createOscillator()
       const gn = ctx.createGain()
@@ -674,13 +701,13 @@ export function useGame(canvas: HTMLCanvasElement) {
     const group = new THREE.Group()
     group.position.set(x, y, z)
     for (let i = 0; i < 12; i++) {
-        const geo = new THREE.BoxGeometry(0.02, 0.02, 0.02)
-        const mat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 1 })
-        const m = new THREE.Mesh(geo, mat)
-        m.userData.vx = (Math.random() - 0.5) * 4
-        m.userData.vy = (Math.random() - 0.5) * 4
-        m.userData.vz = (Math.random() - 0.5) * 4
-        group.add(m)
+      const geo = new THREE.BoxGeometry(0.02, 0.02, 0.02)
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 1 })
+      const m = new THREE.Mesh(geo, mat)
+      m.userData.vx = (Math.random() - 0.5) * 4
+      m.userData.vy = (Math.random() - 0.5) * 4
+      m.userData.vz = (Math.random() - 0.5) * 4
+      group.add(m)
     }
     scene.add(group)
     hitBursts.push({ g: group, t: 0 })
@@ -708,16 +735,16 @@ export function useGame(canvas: HTMLCanvasElement) {
     // Foliage texture
     const fTex = texLoader.load('/textures/foliage.png')
     fTex.colorSpace = THREE.SRGBColorSpace
-    const fMat = new THREE.MeshStandardMaterial({ 
-      map: fTex, 
-      color: 0x1a4a1a, 
+    const fMat = new THREE.MeshStandardMaterial({
+      map: fTex,
+      color: 0x1a4a1a,
       roughness: 1,
       transparent: true,
-      alphaTest: 0.5 
+      alphaTest: 0.5
     })
 
     // Random leaf blobs
-    for(let i=0; i<3; i++) {
+    for (let i = 0; i < 3; i++) {
       const g = new THREE.IcosahedronGeometry(1.6, 0)
       const m = new THREE.Mesh(g, fMat)
       m.position.y = 3.5 + i * 1.2
@@ -733,13 +760,18 @@ export function useGame(canvas: HTMLCanvasElement) {
   }
 
   function buildArena() {
+    // Arena dinámica basada en WORLD_SIZE_W y WORLD_SIZE_D
+    scene.children.filter(c => c.userData.isWall).forEach(c => scene.add(c)) // Clean old walls if any? Actually buildArena is only called once.
+    
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x2d1b0a, roughness: 1 })
-    const hw = WORLD_SIZE / 2
+    const hW = WORLD_SIZE_W / 2
+    const hD = WORLD_SIZE_D / 2
+    
     const wallConfigs = [
-      { x: 0, z: -hw, rx: 0, w: WORLD_SIZE, h: 6 },
-      { x: hw, z: 0, rx: Math.PI / 2, w: WORLD_SIZE, h: 6 },
-      { x: 0, z: hw, rx: Math.PI, w: WORLD_SIZE, h: 6 },
-      { x: -hw, z: 0, rx: -Math.PI / 2, w: WORLD_SIZE, h: 6 },
+      { x: 0, z: -hD, rx: 0, w: WORLD_SIZE_W, h: 8 },
+      { x: hW, z: 0, rx: Math.PI / 2, w: WORLD_SIZE_D, h: 8 },
+      { x: 0, z: hD, rx: Math.PI, w: WORLD_SIZE_W, h: 8 },
+      { x: -hW, z: 0, rx: -Math.PI / 2, w: WORLD_SIZE_D, h: 8 },
     ]
     wallConfigs.forEach(({ x, z, rx, w, h }) => {
       const geo = new THREE.BoxGeometry(w, h, 2)
@@ -748,13 +780,13 @@ export function useGame(canvas: HTMLCanvasElement) {
       mesh.rotation.y = rx
       mesh.castShadow = true
       mesh.receiveShadow = true
+      mesh.userData.isWall = true
       scene.add(mesh)
     })
 
     const treePositions = [
       [12, 12], [-12, 12], [12, -12], [-12, -12],
       [22, 0], [-22, 0], [0, 22], [0, -22],
-      [15, 5], [-15, -5], [5, 15], [-5, -15],
     ]
     treePositions.forEach(([x, z]) => buildTree(x, z))
   }
@@ -813,7 +845,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     const ratio = Math.max(0, hp / maxHp)
     fill.scale.x = ratio
     fill.position.x = -(1 - ratio) / 2
-    ;(fill.material as THREE.MeshBasicMaterial).color.setHex(ratio > 0.5 ? 0x22bb22 : ratio > 0.25 ? 0xffaa00 : 0xcc0000)
+      ; (fill.material as THREE.MeshBasicMaterial).color.setHex(ratio > 0.5 ? 0x22bb22 : ratio > 0.25 ? 0xffaa00 : 0xcc0000)
     const camPos = thirdPerson.value ? cameraThird.position : camera.position
     barGroup.lookAt(camPos)
   }
@@ -871,9 +903,10 @@ export function useGame(canvas: HTMLCanvasElement) {
     }
 
     // Límites del mundo
-    const hw = WORLD_SIZE / 2 - 0.5
-    localX = Math.max(-hw, Math.min(hw, localX))
-    localZ = Math.max(-hw, Math.min(hw, localZ))
+    const hW = WORLD_SIZE_W / 2 - 0.5
+    const hD = WORLD_SIZE_D / 2 - 0.5
+    localX = Math.max(-hW, Math.min(hW, localX))
+    localZ = Math.max(-hD, Math.min(hD, localZ))
 
     camera.position.set(localX, localY + PLAYER_HEIGHT / 2, localZ)
     camera.rotation.order = 'YXZ'
@@ -952,6 +985,45 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   // ─── Interpolación de jugadores remotos ──────────────────────────────────
   function pushSnapshot(snap: WorldSnapshot) {
+    if (snap.roundTimeLeft !== undefined) roundTimeLeft.value = snap.roundTimeLeft
+    
+    // Actualizar objetos destructibles
+    if (snap.worldObjects) {
+      snap.worldObjects.forEach((obj: any) => {
+        let m = destructibleMeshes.get(obj.id)
+        if (!m) {
+          const isCastle = obj.type === 'CASTLE'
+          const geo = new THREE.BoxGeometry(obj.width, isCastle ? 14 : 6, obj.depth)
+          const mat = new THREE.MeshStandardMaterial({ 
+            color: isCastle ? 0x444444 : 0x332211,
+            metalness: 0.1,
+            roughness: 0.8
+          })
+          m = new THREE.Mesh(geo, mat)
+          m.position.set(obj.x, (isCastle ? 7 : 3), obj.z)
+          m.castShadow = true
+          m.receiveShadow = true
+          scene.add(m)
+          destructibleMeshes.set(obj.id, m)
+        }
+        
+        // Efecto visual según salud
+        const hpPct = obj.health / obj.maxHealth
+        m.visible = hpPct > 0
+        if (m.material instanceof THREE.MeshStandardMaterial) {
+          m.material.color.set(obj.type === 'CASTLE' ? 0x444444 : 0x332211).multiplyScalar(0.3 + 0.7 * hpPct)
+        }
+      })
+      
+      // Limpiar objetos eliminados del servidor
+      destructibleMeshes.forEach((mesh, id) => {
+        if (!snap.worldObjects.some(o => o.id === id)) {
+          scene.remove(mesh)
+          destructibleMeshes.delete(id)
+        }
+      })
+    }
+
     snapshotBuffer.push({
       serverTime: snap.serverTime,
       receivedAt: performance.now(),
@@ -1028,7 +1100,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       // Animación de cuerpo (Locomoción)
       const mixer = mixers.get(id)
       if (mixer && sharedClips.walk && sharedClips.idle) {
-        const velSq = pBefore && pAfter ? 
+        const velSq = pBefore && pAfter ?
           (Math.pow(pAfter.x - pBefore.x, 2) + Math.pow(pAfter.z - pBefore.z, 2)) : 0
         const isMoving = velSq > 0.0001
         updateMixerState(mixer, isMoving)
@@ -1049,7 +1121,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     if (!sharedClips.idle || !sharedClips.walk) return
     const idleAction = mixer.clipAction(sharedClips.idle)
     const walkAction = mixer.clipAction(sharedClips.walk)
-    
+
     if (isMoving) {
       if (idleAction.weight > 0.5) {
         idleAction.crossFadeTo(walkAction, 0.25, true)
@@ -1219,5 +1291,8 @@ export function useGame(canvas: HTMLCanvasElement) {
     applyClashImpact,
     loadKayKitAssets,
     refreshCharacterMeshes,
+    onWelcome,
+    roundTimeLeft,
+    localPlayerTeam,
   }
 }

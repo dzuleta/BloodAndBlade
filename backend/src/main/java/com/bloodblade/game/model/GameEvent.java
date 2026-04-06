@@ -60,4 +60,11 @@ public class GameEvent {
         e.message = name + " left the battle";
         return e;
     }
+
+    public static GameEvent message(String type, String msg) {
+        GameEvent e = new GameEvent();
+        e.type = type;
+        e.message = msg;
+        return e;
+    }
 }

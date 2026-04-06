@@ -57,7 +57,7 @@ onMounted(() => {
   g.localId.value = ''
 
   void g.loadKayKitAssets().catch(() => {
-    /* KayKit opcional: sin red el juego sigue con meshes procedurales */
+    /* KayKit opcional */
   })
 
   // Conectar al backend
@@ -66,8 +66,13 @@ onMounted(() => {
   // Cuando llega WELCOME, actualizar el localId en game
   const stopWatch = setInterval(() => {
     const pid = network.localPlayerId.value
+    const wInfo = network.welcomeInfo.value
     if (pid && game.value) {
-      game.value.localId.value = pid
+      if (wInfo) {
+        game.value.onWelcome(pid, wInfo.worldWidth, wInfo.worldDepth, wInfo.team)
+      } else {
+        game.value.localId.value = pid
+      }
       game.value.refreshCharacterMeshes()
       clearInterval(stopWatch)
     }
@@ -173,6 +178,8 @@ function backToLobby() {
       :events="network.gameEvents.value"
       :fps="game?.fps.value ?? 0"
       :ping="network.pingMs.value"
+      :round-time-left="game?.roundTimeLeft.value ?? 0"
+      :current-team="game?.localPlayerTeam.value ?? ''"
     />
 
     <!-- Overlay de cola de espera -->

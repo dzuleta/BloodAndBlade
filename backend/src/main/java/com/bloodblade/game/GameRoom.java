@@ -38,6 +38,8 @@ public class GameRoom {
 
     // ─── Bots de entrenamiento ────────────────────────────────────────────
     private final List<NpcBot> bots = new ArrayList<>();
+    private final List<Destructible> destructibles = new ArrayList<>();
+    private long roundEndTime;
 
     private long tickCount = 0;
 
@@ -45,16 +47,52 @@ public class GameRoom {
         this.cfg = cfg;
         this.physics = physics;
         this.mapper = mapper;
-        spawnBots(1);
+        restartRound();
     }
 
-    /** Crea N bots y los añade directamente al mundo. */
-    private void spawnBots(int count) {
-        for (int i = 0; i < count; i++) {
-            NpcBot bot = new NpcBot(cfg, "[Bot] Caballero " + (i + 1));
-            activePlayers.put(bot.player.id, bot.player);
-            bots.add(bot);
-            log.info("Bot '{}' ({}) añadido al mundo.", bot.player.name, bot.player.id);
+    private void restartRound() {
+        this.roundEndTime = System.currentTimeMillis() + cfg.roundDurationMs;
+        this.destructibles.clear();
+        
+        // Castillo (Norte, z = +75)
+        destructibles.add(new Destructible(Destructible.Type.CASTLE, 0, cfg.worldDepth/2.0 - 5.0, 15, 10, 1200));
+        
+        // Murallas defensivas (z = +55)
+        for (int i = -1; i <= 1; i++) {
+            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, 55, 15, 3, 600));
+        }
+
+        // Posicionar jugadores
+        for(Player p : activePlayers.values()) {
+            p.spawnAtRandom();
+        }
+    }
+
+    private void maintainTeamBalance() {
+        long bbq = activePlayers.values().stream().filter(p -> p.team == Team.BARBARIAN).count();
+        long knq = activePlayers.values().stream().filter(p -> p.team == Team.KNIGHT).count();
+        if (bbq < 6) spawnBot(Team.BARBARIAN);
+        if (knq < 6) spawnBot(Team.KNIGHT);
+    }
+
+    private void spawnBot(Team team) {
+        String name = team == Team.BARBARIAN ? "[Bot] Barbaro " : "[Bot] Caballero ";
+        NpcBot bot = new NpcBot(cfg, name + (bots.size() + 1));
+        bot.player.team = team;
+        bot.player.spawnAtRandom();
+        activePlayers.put(bot.player.id, bot.player);
+        bots.add(bot);
+    }
+
+    private void checkRoundEnd(long now, List<GameEvent> events) {
+        boolean castleDestroyed = destructibles.stream().anyMatch(d -> d.type == Destructible.Type.CASTLE && !d.alive());
+        boolean timeOut = now >= roundEndTime;
+
+        if (castleDestroyed || timeOut) {
+            Team winner = castleDestroyed ? Team.BARBARIAN : Team.KNIGHT;
+            String msg = (winner == Team.BARBARIAN ? "BARBARIANS WIN!" : "KNIGHTS WIN!") + " Castle Defended: " + !castleDestroyed;
+            events.add(GameEvent.message("ROUND_OVER", msg));
+            restartRound();
         }
     }
 
@@ -96,35 +134,25 @@ public class GameRoom {
         tickCount++;
         long now = System.currentTimeMillis();
 
-        // 0. Actualizar IA de bots (genera lastInput antes de applyInput)
+        maintainTeamBalance();
+
         for (NpcBot bot : bots) {
             InputFrame botInput = bot.buildInput(now, activePlayers.values());
             if (botInput != null) bot.player.lastInput = botInput;
         }
 
-        // 1. Aplicar inputs y mover jugadores
         for (Player p : activePlayers.values()) {
-            if (!p.alive && now >= p.respawnAt) {
-                p.spawnAtRandom();
-            }
-            if (p.alive) {
-                p.applyInput(p.lastInput, dt);
-            }
-            // Regeneración de stamina
+            if (!p.alive && now >= p.respawnAt) p.spawnAtRandom();
+            if (p.alive) p.applyInput(p.lastInput, dt);
             p.stamina = Math.min(1.0f, p.stamina + cfg.staminaRegenPerTick);
         }
 
-        // 2. Resolver colisiones entre cápsulas
         physics.resolveCollisions(activePlayers.values());
-
-        // 3. Avanzar máquina de estados de combate y detectar hits
         List<GameEvent> events = processCombat(now);
+        checkRoundEnd(now, events);
 
-        // 4. Construir y difundir snapshot
         WorldSnapshot snap = buildSnapshot();
         broadcastSnapshot(snap);
-
-        // 5. Difundir eventos discretos
         for (GameEvent ev : events) broadcastEvent(ev);
     }
 
@@ -191,10 +219,24 @@ public class GameRoom {
                 attacker.blockDir = inp.swingDir;
             }
 
-            // Detectar hits durante RELEASE (el tajo sigue hasta fin de release; puede cortar a varios rivales)
+            // Detectar hits durante RELEASE
             if (attacker.swingPhase == SwingPhase.RELEASE) {
+                // 1. Hits sobre destructibles (Solo barbaros pueden destruir)
+                if (attacker.team == Team.BARBARIAN) {
+                    for (Destructible d : destructibles) {
+                        if (d.alive() && physics.detectDestructibleHit(attacker, d)) {
+                            // Danamos el muro
+                            d.health -= calculateDamage(attacker, new HitResult(true, HitZone.TORSO, 1.0f));
+                            attacker.hitIdsThisRelease.add(d.id);
+                            log.debug("DBLE: {} golpeó {} | health {}", attacker.name, d.type, d.health);
+                        }
+                    }
+                }
+
+                // 2. Hits sobre otros jugadores
                 for (Player defender : activePlayers.values()) {
                     if (defender.id.equals(attacker.id) || !defender.alive) continue;
+                    if (defender.team == attacker.team) continue; // No fuego amigo
                     if (attacker.hitIdsThisRelease.contains(defender.id)) continue;
 
                     HitResult hr = physics.detectHit(attacker, defender);
@@ -288,6 +330,8 @@ public class GameRoom {
         WorldSnapshot snap = new WorldSnapshot();
         snap.tick = tickCount;
         snap.serverTime = System.currentTimeMillis();
+        snap.roundTimeLeft = Math.max(0, roundEndTime - snap.serverTime);
+        
         snap.players = activePlayers.values().stream().map(p -> {
             WorldSnapshot.PlayerState ps = new WorldSnapshot.PlayerState();
             ps.id = p.id;
@@ -300,11 +344,24 @@ public class GameRoom {
             ps.swingDir = p.swingDir.name();
             ps.blocking = p.blocking;
             ps.blockDir = p.blockDir.name();
-            ps.momentum = p.stamina; // Seguir enviando bajo el nombre 'momentum' para no romper el protocolo frontend por ahora
+            ps.momentum = p.stamina;
             ps.kills = p.kills.get();
             ps.deaths = p.deaths.get();
+            ps.team = p.team.name();
             return ps;
         }).collect(Collectors.toList());
+
+        snap.worldObjects = destructibles.stream().map(d -> {
+            WorldSnapshot.DestructibleState ds = new WorldSnapshot.DestructibleState();
+            ds.id = d.id;
+            ds.type = d.type.name();
+            ds.x = d.x; ds.z = d.z;
+            ds.width = d.width; ds.depth = d.depth;
+            ds.health = d.health;
+            ds.maxHealth = d.maxHealth;
+            return ds;
+        }).collect(Collectors.toList());
+
         return snap;
     }
 
@@ -330,6 +387,11 @@ public class GameRoom {
 
     private void admitPlayer(WebSocketSession session, String playerName) {
         Player p = new Player(session, playerName, cfg);
+        
+        // Asignación aleatoria de equipo
+        p.team = Math.random() > 0.5 ? Team.BARBARIAN : Team.KNIGHT;
+        p.spawnAtRandom();
+
         activePlayers.put(p.id, p);
         sessionToPlayer.put(session.getId(), p);
 
@@ -337,13 +399,14 @@ public class GameRoom {
         Map<String, Object> welcome = new LinkedHashMap<>();
         welcome.put("type", "WELCOME");
         welcome.put("playerId", p.id);
+        welcome.put("team", p.team.name());
         welcome.put("worldWidth", cfg.worldWidth);
         welcome.put("worldDepth", cfg.worldDepth);
         String json = toJson(welcome);
         if (json != null) sendSafe(session, new TextMessage(json));
 
         broadcastEvent(GameEvent.playerJoined(p.id, p.name));
-        log.info("Player '{}' ({}) admitido. Activos: {}", p.name, p.id, activePlayers.size());
+        log.info("Player '{}' ({}) admitido en equipo {}. Activos: {}", p.name, p.id, p.team, activePlayers.size());
     }
 
     private void promoteFromQueue() {

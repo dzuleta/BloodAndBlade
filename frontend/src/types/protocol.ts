@@ -41,6 +41,7 @@ export interface RemotePlayer {
   momentum: number
   kills: number
   deaths: number
+  team: string
 }
 
 export interface WorldSnapshot {
@@ -49,6 +50,8 @@ export interface WorldSnapshot {
   serverTime: number
   players: RemotePlayer[]
   localPlayerId: string
+  roundTimeLeft: number
+  worldObjects: any[]
 }
 
 export type GameEventType =
@@ -79,6 +82,7 @@ export interface WelcomeMessage {
   playerId: string
   worldWidth: number
   worldDepth: number
+  team: string
 }
 
 export type ServerMessage =

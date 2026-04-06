@@ -40,6 +40,8 @@ public class Player {
     public SwingDirection blockDir = SwingDirection.RIGHT;
     public float stamina = 1.0f;             // [0, 1]
 
+    public Team team = Team.KNIGHT;               // Equipo asignado
+
     /** Víctimas ya dañadas en este RELEASE (un tajo puede atravesar a varios, sin doble daño al mismo). */
     public final Set<String> hitIdsThisRelease = new HashSet<>();
 
@@ -60,9 +62,16 @@ public class Player {
 
     public void spawnAtRandom() {
         double hw = cfg.worldWidth / 2.0 - 2.0;
-        double hd = cfg.worldDepth / 2.0 - 2.0;
+        double hd = cfg.worldDepth / 2.0 - 5.0; // margen para el castillo/spawn
+        
         this.x = (Math.random() * 2 - 1) * hw;
-        this.z = (Math.random() * 2 - 1) * hd;
+        // Barbaros (asaltantes) aparecen al sur (z < 0), Caballeros (defensores) al norte (z > 0)
+        if (team == Team.BARBARIAN) {
+            this.z = -hd + (Math.random() * 10); // franja de 10 unidades
+        } else {
+            this.z = hd - (Math.random() * 10); 
+        }
+        
         this.y = 0;
         this.health = maxHealth;
         this.alive = true;
