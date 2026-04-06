@@ -31,8 +31,8 @@ const allPlayers = computed<RemotePlayer[]>(() => {
 
 const camToggleLabel = computed(() => {
   const g = game.value
-  if (!g?.thirdPerson) return 'Toggle View (3ª)'
-  return g.thirdPerson.value ? 'Toggle View (1ª)' : 'Toggle View (3ª)'
+  if (!g?.thirdPerson) return 'Toggle View (H)'
+  return g.thirdPerson.value ? 'Toggle View (H)' : 'Toggle View (H)'
 })
 
 function onTogglePerspective() {
@@ -103,11 +103,16 @@ onMounted(() => {
       const evs = network.gameEvents.value
       if (evs.length === 0 || !game.value) return
       const ev = evs[evs.length - 1]
-      if (ev.type !== 'PLAYER_HIT') return
+      
       const snap = network.latestSnapshot.value
-      const victim = snap?.players.find((p) => p.id === ev.victimId)
-      if (!victim) return
-      game.value.applyHitImpact(victim.x, victim.y + 1.2, victim.z)
+      
+      if (ev.type === 'PLAYER_HIT') {
+        const victim = snap?.players.find((p) => p.id === ev.victimId)
+        if (victim) game.value.applyHitImpact(victim.x, victim.y + 1.2, victim.z)
+      } else if (ev.type === 'BLOCK_SUCCESS') {
+        const blocker = snap?.players.find((p) => p.id === ev.attackerId) // en el evento, attacker es el que bloqueó
+        if (blocker) game.value.applyClashImpact(blocker.x, blocker.y + 1.2, blocker.z)
+      }
     },
   )
 

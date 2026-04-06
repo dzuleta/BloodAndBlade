@@ -23,14 +23,15 @@ public class GameConfig {
     /** Alcance del golpe (mundo); coincide con la esfera/cilindro lógico de detectHit, no con el mesh de la espada. */
     public double hitReach = 2.0;
 
-    // Daño base y variación por velocidad (momentum)
-    public int baseDamage = 20;
-    public int momentumBonusDamage = 15;
+    // Daño base
+    public int baseDamage = 35;
 
-    // Pérdida de momentum al hacer feint
-    public float feintMomentumPenalty = 0.35f;
-    // Pérdida de momentum al bloquear y redirigir
-    public float blockRedirectMomentumLoss = 0.20f;
+    // Stamina
+    public float staminaRegenPerTick = 0.05f;
+    public float staminaMinToAttack = 0.30f;
+    public float staminaFullDamageThreshold = 0.45f;
+    public float staminaCostSuccess = 0.20f;
+    public float staminaCostMiss = 0.20f;
 
     // Respawn delay ms
     public long respawnDelayMs = 3000;

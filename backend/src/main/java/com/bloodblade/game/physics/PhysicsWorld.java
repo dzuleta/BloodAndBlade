@@ -3,6 +3,8 @@ package com.bloodblade.game.physics;
 import com.bloodblade.game.model.GameConfig;
 import com.bloodblade.game.model.HitZone;
 import com.bloodblade.game.model.Player;
+import com.bloodblade.game.model.SwingDirection;
+import com.bloodblade.game.model.SwingPhase;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -76,13 +78,35 @@ public class PhysicsWorld {
         double forwardDot = dx * sinY + dz * (-cosY);
         if (forwardDot < 0) return new HitResult(false, null, 0);
 
-        // Zona de impacto según dirección del swing
+        // Detectar choque de espadas: si el defensor tiene arma activa y sus direcciones coinciden
+        boolean swordOut = defender.blocking || 
+                           defender.swingPhase == SwingPhase.WINDUP ||
+                           defender.swingPhase == SwingPhase.RELEASE;
+        
+        // El arma bloquea si la dirección coincide.
+        // Si el defensor bloquea explícitamente se usa blockDir; si está cargado/atacando se usa swingDir.
+        SwingDirection defDir = defender.blocking ? defender.blockDir : defender.swingDir;
+
+        if (swordOut && defDir.covers(attacker.swingDir)) {
+            // Verificar que estén enfrentados para un choque realista
+            double dxDef = -dx;
+            double dzDef = -dz;
+            double sinYDef = Math.sin(defender.yaw);
+            double cosYDef = Math.cos(defender.yaw);
+            double defForwardDot = dxDef * sinYDef + dzDef * (-cosYDef);
+            
+            if (defForwardDot > 0) {
+                return new HitResult(true, HitZone.SWORD, attacker.stamina);
+            }
+        }
+
+        // Zona de impacto según dirección del swing para cuerpo
         HitZone zone = switch (attacker.swingDir) {
             case UP   -> HitZone.HEAD;
             case DOWN -> HitZone.LEGS;
             default   -> HitZone.TORSO;
         };
 
-        return new HitResult(true, zone, attacker.momentum);
+        return new HitResult(true, zone, attacker.stamina);
     }
 }

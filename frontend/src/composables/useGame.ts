@@ -559,6 +559,63 @@ export function useGame(canvas: HTMLCanvasElement) {
     playHitImpactSound()
   }
 
+  function playClashSound() {
+    try {
+      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      if (!AC) return
+      if (!hitAudioCtx) hitAudioCtx = new AC()
+      const ctx = hitAudioCtx
+      if (ctx.state === 'suspended') void ctx.resume()
+      const t0 = ctx.currentTime
+      
+      // Metallic "ting"
+      const osc = ctx.createOscillator()
+      const gn = ctx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(1200, t0)
+      osc.frequency.exponentialRampToValueAtTime(400, t0 + 0.1)
+      gn.gain.setValueAtTime(0.3, t0)
+      gn.gain.exponentialRampToValueAtTime(0.001, t0 + 0.15)
+      osc.connect(gn)
+      gn.connect(ctx.destination)
+      osc.start(t0)
+      osc.stop(t0 + 0.15)
+
+      // Noise burst for impact
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.05), ctx.sampleRate)
+      const data = buf.getChannelData(0)
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.2))
+      const noise = ctx.createBufferSource()
+      noise.buffer = buf
+      const gn2 = ctx.createGain()
+      gn2.gain.value = 0.2
+      noise.connect(gn2)
+      gn2.connect(ctx.destination)
+      noise.start(t0)
+    } catch { /* sin audio */ }
+  }
+
+  function spawnClashSparks(x: number, y: number, z: number) {
+    const group = new THREE.Group()
+    group.position.set(x, y, z)
+    for (let i = 0; i < 12; i++) {
+        const geo = new THREE.BoxGeometry(0.02, 0.02, 0.02)
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 1 })
+        const m = new THREE.Mesh(geo, mat)
+        m.userData.vx = (Math.random() - 0.5) * 4
+        m.userData.vy = (Math.random() - 0.5) * 4
+        m.userData.vz = (Math.random() - 0.5) * 4
+        group.add(m)
+    }
+    scene.add(group)
+    hitBursts.push({ g: group, t: 0 })
+  }
+
+  function applyClashImpact(x: number, y: number, z: number) {
+    spawnClashSparks(x, y, z)
+    playClashSound()
+  }
+
   function buildWalls() {
     const wallMat = new THREE.MeshLambertMaterial({ color: 0x7a6040 })
     const hw = WORLD_SIZE / 2
@@ -716,7 +773,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     if (!thirdPerson.value) return
     camera.updateMatrixWorld(true)
     camera.getWorldDirection(fwScratch)
-    fwScratch.y = 0
+    // fwScratch ahora conserva la inclinación vertical (pitch)
     if (fwScratch.lengthSq() < 1e-6) fwScratch.set(0, 0, 1)
     else fwScratch.normalize()
 
@@ -727,7 +784,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     cameraThird.position.y += tpCamRaise
     cameraThird.position.y = Math.max(0.45, cameraThird.position.y)
 
-    cameraThird.lookAt(localX, eyeY - 0.12, localZ)
+    // Mirar hacia adelante siguiendo la dirección de la cámara principal
+    const target = new THREE.Vector3(localX, eyeY, localZ).addScaledVector(fwScratch, 20)
+    cameraThird.lookAt(target)
   }
 
   function updateLocalPlayerAvatar() {
@@ -1006,6 +1065,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     setSwordFromInput,
     toggleThirdPersonView,
     applyHitImpact,
+    applyClashImpact,
     loadKayKitAssets,
     refreshCharacterMeshes,
   }

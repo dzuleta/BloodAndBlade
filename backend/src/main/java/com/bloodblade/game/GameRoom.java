@@ -110,6 +110,8 @@ public class GameRoom {
             if (p.alive) {
                 p.applyInput(p.lastInput, dt);
             }
+            // Regeneración de stamina
+            p.stamina = Math.min(1.0f, p.stamina + cfg.staminaRegenPerTick);
         }
 
         // 2. Resolver colisiones entre cápsulas
@@ -140,12 +142,14 @@ public class GameRoom {
 
             if (inp == null) continue;
 
-            // Inicio de ataque: WINDUP mientras se mantiene el botón; sin daño hasta RELEASE
+            // Inicio de ataque: WINDUP solo si tiene suficiente stamina
             if (inp.attackStart && attacker.swingPhase == SwingPhase.IDLE) {
-                attacker.swingPhase = SwingPhase.WINDUP;
-                attacker.swingDir = inp.swingDir;
-                attacker.swingPhaseEnd = 0L; // no hay timeout: solo attackRelease pasa a RELEASE
-                attacker.momentum = Math.min(1f, attacker.momentum + 0.4f);
+                if (attacker.stamina >= cfg.staminaMinToAttack) {
+                    attacker.swingPhase = SwingPhase.WINDUP;
+                    attacker.swingDir = inp.swingDir;
+                    attacker.swingPhaseEnd = 0L; 
+                    attacker.blocking = false; // Atacar cancela el bloqueo
+                }
             }
 
             // Soltar el botón durante WINDUP ejecuta el golpe de inmediato
@@ -157,22 +161,24 @@ public class GameRoom {
 
             // Liberar ataque: WINDUP → RELEASE
             if (inp.attackRelease && attacker.swingPhase == SwingPhase.IDLE) {
-                // re-swing directo si tiene momentum suficiente
+                // re-swing directo si tiene momentum suficiente 
             }
 
-            // Inicio de bloqueo
+            // Inicio de bloqueo (Click derecho)
             if (inp.blockDown && !attacker.blocking) {
                 attacker.blocking = true;
                 attacker.blockDir = inp.swingDir;
+                
+                // Si estaba en WINDUP, cancelar ataque (Feint)
+                if (attacker.swingPhase == SwingPhase.WINDUP) {
+                    attacker.swingPhase = SwingPhase.IDLE;
+                    attacker.swingPhaseEnd = 0;
+                }
             }
 
-            // Fin de bloqueo + posible redirección con bajo loss de momentum
+            // Fin de bloqueo
             if (inp.blockUp && attacker.blocking) {
                 attacker.blocking = false;
-                if (attacker.swingPhase == SwingPhase.WINDUP) {
-                    attacker.swingDir = inp.swingDir;
-                    attacker.momentum = Math.max(0, attacker.momentum - cfg.blockRedirectMomentumLoss);
-                }
             }
 
             // Actualizar dirección de swing mientras se carga (el jugador apunta con el mouse)
@@ -194,17 +200,32 @@ public class GameRoom {
                     HitResult hr = physics.detectHit(attacker, defender);
                     if (!hr.hit()) continue;
 
-                    // Comprobar bloqueo: si el defensor bloquea en la dirección correcta
-                    if (defender.blocking && defender.blockDir.covers(attacker.swingDir)) {
+                    // Bloqueo o Choque de espadas
+                    if (hr.zone() == HitZone.SWORD) {
                         attacker.swingPhase = SwingPhase.BLOCKED;
                         attacker.swingPhaseEnd = now + cfg.blockedMs;
-                        attacker.momentum = 0;
-                        events.add(GameEvent.blockSuccess(defender.id, attacker.id));
-                        log.debug("BLOQUEADO: {} bloqueó el swing {} de {}",
-                                defender.name, attacker.swingDir, attacker.name);
+                        attacker.stamina = 0; // Perder toda la stamina si te bloquean
+                        
+                        // Si el rival también está en medio de un golpe, interrumpirlo
+                        if (defender.swingPhase == SwingPhase.RELEASE || defender.swingPhase == SwingPhase.WINDUP) {
+                            defender.swingPhase = SwingPhase.BLOCKED;
+                            defender.swingPhaseEnd = now + cfg.blockedMs;
+                        }
+                        
+                        // Ganar stamina por bloqueo exitoso
+                        defender.stamina = Math.min(1.0f, defender.stamina + 0.5f);
+
+                        GameEvent be = GameEvent.blockSuccess(defender.id, attacker.id);
+                        be.message = defender.name + " blocked " + attacker.name;
+                        events.add(be);
+
+                        log.debug("CLASH: {} y {} chocaron espadas ({})", 
+                                defender.name, attacker.name, attacker.swingDir);
                         break;
                     } else {
+                        // Impacto en el cuerpo
                         attacker.hitIdsThisRelease.add(defender.id);
+                        attacker.stamina = Math.max(0, attacker.stamina - cfg.staminaCostSuccess);
                         int dmg = calculateDamage(attacker, hr);
                         defender.health -= dmg;
                         events.add(GameEvent.playerHit(attacker.id, defender.id, dmg, hr.zone()));
@@ -224,9 +245,8 @@ public class GameRoom {
                 }
             }
 
-            // Decaimiento de momentum cuando está en IDLE
             if (attacker.swingPhase == SwingPhase.IDLE) {
-                attacker.momentum = Math.max(0, attacker.momentum - 0.015f);
+                // No decaimiento de momentum aquí (ahora es regen de stamina en el tick global)
             }
         }
 
@@ -238,7 +258,18 @@ public class GameRoom {
         if (p.swingPhase == SwingPhase.WINDUP) return;
         if (now < p.swingPhaseEnd) return;
         switch (p.swingPhase) {
-            case RELEASE  -> { p.swingPhase = SwingPhase.RECOVERY; p.swingPhaseEnd = now + cfg.recoveryMs; }
+            case RELEASE  -> { 
+                p.swingPhase = SwingPhase.RECOVERY; 
+                p.swingPhaseEnd = now + cfg.recoveryMs; 
+                // Si llegamos aquí al final de release sin hits (o tras Hits), ya descontamos stamina?
+                // El usuario dijo: "Golpear exitosamente quita 20%, Intentar sin exito quita 20%".
+                // Pero si golpeamos a 3 personas, ¿quita 20% por cada una? 
+                // Probablemente se refiere a 20% por SWING que conecte al menos una vez, o 20% si fallas por completo.
+                // Vamos a simplificar: si el release termina sin haber golpeado a nadie, quitamos 20%.
+                if (p.hitIdsThisRelease.isEmpty()) {
+                    p.stamina = Math.max(0, p.stamina - cfg.staminaCostMiss);
+                }
+            }
             case RECOVERY -> { p.swingPhase = SwingPhase.IDLE;     p.swingPhaseEnd = 0; }
             case BLOCKED  -> { p.swingPhase = SwingPhase.IDLE;     p.swingPhaseEnd = 0; }
             default -> {}
@@ -246,8 +277,8 @@ public class GameRoom {
     }
 
     private int calculateDamage(Player attacker, HitResult hr) {
-        float momentumFactor = 0.6f + attacker.momentum * 0.4f;
-        int raw = (int) ((cfg.baseDamage + cfg.momentumBonusDamage * attacker.momentum) * momentumFactor);
+        float staminaMult = (attacker.stamina >= cfg.staminaFullDamageThreshold) ? 1.0f : 0.5f;
+        int raw = (int) (cfg.baseDamage * staminaMult);
         return Math.round(raw * hr.zone().damageMultiplier);
     }
 
@@ -269,7 +300,7 @@ public class GameRoom {
             ps.swingDir = p.swingDir.name();
             ps.blocking = p.blocking;
             ps.blockDir = p.blockDir.name();
-            ps.momentum = p.momentum;
+            ps.momentum = p.stamina; // Seguir enviando bajo el nombre 'momentum' para no romper el protocolo frontend por ahora
             ps.kills = p.kills.get();
             ps.deaths = p.deaths.get();
             return ps;

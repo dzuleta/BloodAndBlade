@@ -38,7 +38,7 @@ public class Player {
     public long swingPhaseEnd = 0;            // ms epoch cuando termina la fase actual
     public boolean blocking = false;
     public SwingDirection blockDir = SwingDirection.RIGHT;
-    public float momentum = 0f;              // [0, 1]
+    public float stamina = 1.0f;             // [0, 1]
 
     /** Víctimas ya dañadas en este RELEASE (un tajo puede atravesar a varios, sin doble daño al mismo). */
     public final Set<String> hitIdsThisRelease = new HashSet<>();
@@ -68,7 +68,7 @@ public class Player {
         this.alive = true;
         this.swingPhase = SwingPhase.IDLE;
         this.blocking = false;
-        this.momentum = 0f;
+        this.stamina = 1.0f;
         this.hitIdsThisRelease.clear();
     }
 

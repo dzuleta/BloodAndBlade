@@ -40,21 +40,29 @@ let blockBannerTimer: ReturnType<typeof setTimeout> | null = null
 
 watch(
   () => props.events.length,
-  () => {
-    const ev = props.events[props.events.length - 1]
-    if (!ev || ev.type !== 'BLOCK_SUCCESS' || !props.localPlayer) return
-    if (blockBannerTimer) clearTimeout(blockBannerTimer)
-    if (ev.attackerId === props.localPlayer.id) {
-      blockBanner.value = 'you_blocked'
-    } else if (ev.victimId === props.localPlayer.id) {
-      blockBanner.value = 'got_blocked'
-    } else {
-      return
+  (_, oldLen) => {
+    // Procesar todos los eventos nuevos (por si llegaron varios en un tick)
+    const newEvents = props.events.slice(oldLen)
+    if (!props.localPlayer) return
+
+    for (const ev of newEvents) {
+      if (ev.type !== 'BLOCK_SUCCESS') continue
+
+      if (blockBannerTimer) clearTimeout(blockBannerTimer)
+      
+      if (ev.attackerId === props.localPlayer.id) {
+        blockBanner.value = 'you_blocked'
+      } else if (ev.victimId === props.localPlayer.id) {
+        blockBanner.value = 'got_blocked'
+      } else {
+        continue
+      }
+
+      blockBannerTimer = setTimeout(() => {
+        blockBanner.value = 'none'
+        blockBannerTimer = null
+      }, 1800)
     }
-    blockBannerTimer = setTimeout(() => {
-      blockBanner.value = 'none'
-      blockBannerTimer = null
-    }, 1800)
   },
 )
 </script>
@@ -94,8 +102,8 @@ watch(
     <div class="swing-phase" :class="localPlayer.swingPhase.toLowerCase()">
       {{ localPlayer.blocking ? '🛡 ' + localPlayer.blockDir : '⚔ ' + localPlayer.swingDir }}
     </div>
-    <div class="momentum-bar">
-      <div class="momentum-fill" :style="{ width: (localPlayer.momentum * 100) + '%' }" />
+    <div class="stamina-bar">
+      <div class="stamina-fill" :style="{ width: (localPlayer.momentum * 100) + '%' }" />
     </div>
   </div>
 
@@ -127,6 +135,11 @@ watch(
           <span class="ev-sep"> hit </span>
           <span class="ev-name ev-victim">{{ resolvePlayerName(ev.victimId) }}</span>
           <span class="ev-sep"> ({{ ev.zone }}) –{{ ev.damage }}</span>
+        </template>
+        <template v-else-if="ev.type === 'BLOCK_SUCCESS'">
+          <span class="ev-name">{{ resolvePlayerName(ev.attackerId) }}</span>
+          <span class="ev-sep"> blocked </span>
+          <span class="ev-name">{{ resolvePlayerName(ev.victimId) }}</span>
         </template>
         <template v-else>
           <span class="ev-sep">{{ ev.message }}</span>
@@ -268,7 +281,7 @@ watch(
 .swing-phase.blocked { color: #4488ff; }
 .swing-phase.idle    { color: #aaaaaa; }
 
-.momentum-bar {
+.stamina-bar {
   width: 100%;
   height: 6px;
   background: rgba(0, 0, 0, 0.5);
@@ -276,9 +289,9 @@ watch(
   overflow: hidden;
 }
 
-.momentum-fill {
+.stamina-fill {
   height: 100%;
-  background: linear-gradient(90deg, #ff8800, #ffdd44);
+  background: linear-gradient(90deg, #eeaa00, #ffdd44);
   border-radius: 3px;
   transition: width 0.05s linear;
 }

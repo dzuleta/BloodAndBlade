@@ -88,8 +88,8 @@ public class NpcBot {
 
             // Atacar cuando en rango, no bloqueando y no en swing
             if (!player.blocking && player.swingPhase == SwingPhase.IDLE && now >= nextAttackAt) {
-                SwingDirection[] dirs = SwingDirection.values();
-                SwingDirection chosen = dirs[rng.nextInt(dirs.length)];
+                // SwingDirection[] dirs = SwingDirection.values();
+                SwingDirection chosen = SwingDirection.RIGHT; // Forzado para testear parry
                 inp.attackStart = true;
                 inp.swingDir    = chosen;
                 player.swingDir = chosen;
@@ -117,9 +117,10 @@ public class NpcBot {
             if (!threat.id.equals(lastBlockCheckedFor)) {
                 lastBlockCheckedFor = threat.id;
                 if (!player.blocking && rng.nextInt(2) == 0) {
+                    SwingDirection blockDir = threat.swingDir.getOpposite();
                     inp.blockDown   = true;
-                    inp.swingDir    = threat.swingDir;
-                    player.swingDir = threat.swingDir;
+                    inp.swingDir    = blockDir;
+                    player.swingDir = blockDir;
                     // El rival puede cargar indefinidamente: mantener bloqueo largo
                     blockUntil      = now + 2800;
                     log.debug("[Bot {}] BLOQUEANDO dirección {} (reacción a WINDUP de {})",
