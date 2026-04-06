@@ -2,6 +2,7 @@ import { ref, shallowRef, onUnmounted } from 'vue'
 import * as THREE from 'three'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
+import { Sky } from 'three/addons/objects/Sky.js'
 import type { WorldSnapshot, RemotePlayer } from '../types/protocol'
 
 const PLAYER_HEIGHT = 1.8
@@ -68,8 +69,27 @@ export function useGame(canvas: HTMLCanvasElement) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x4a6080)
-  scene.fog = new THREE.Fog(0x4a6080, 30, 120)
+  scene.background = new THREE.Color(0x0a0c14)
+  scene.fog = new THREE.FogExp2(0x0a0c14, 0.012)
+
+  const sky = new Sky()
+  sky.scale.setScalar(450000)
+  scene.add(sky)
+
+  const sunPosition = new THREE.Vector3()
+  function updateSky() {
+    const uniforms = sky.material.uniforms;
+    uniforms[ 'turbidity' ].value = 10;
+    uniforms[ 'rayleigh' ].value = 3;
+    uniforms[ 'mieCoefficient' ].value = 0.005;
+    uniforms[ 'mieDirectionalG' ].value = 0.7;
+
+    const phi = THREE.MathUtils.degToRad( 90 - 4 ); // Altura del sol (atardecer)
+    const theta = THREE.MathUtils.degToRad( 180 );
+    sunPosition.setFromSphericalCoords( 1, phi, theta );
+    uniforms[ 'sunPosition' ].value.copy( sunPosition );
+  }
+  updateSky()
 
   const camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
   const cameraThird = new THREE.PerspectiveCamera(62, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
@@ -81,31 +101,48 @@ export function useGame(canvas: HTMLCanvasElement) {
   const _mSwordLocal = new THREE.Matrix4()
 
   // ─── Iluminación ─────────────────────────────────────────────────────────
-  const ambient = new THREE.AmbientLight(0xfff3d0, 0.6)
+  const ambient = new THREE.AmbientLight(0xfff3e0, 0.65)
   scene.add(ambient)
 
-  const sun = new THREE.DirectionalLight(0xffe8b0, 1.4)
-  sun.position.set(30, 60, 20)
+  const sun = new THREE.DirectionalLight(0xffddaa, 2.5)
+  sun.position.set(40, 50, 20)
   sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
-  sun.shadow.camera.near = 0.1
-  sun.shadow.camera.far = 200
+  sun.shadow.camera.near = 0.5
+  sun.shadow.camera.far = 250
   sun.shadow.camera.left = -60
   sun.shadow.camera.right = 60
   sun.shadow.camera.top = 60
   sun.shadow.camera.bottom = -60
+  sun.shadow.normalBias = 0.08
+  sun.shadow.bias = -0.0005
   scene.add(sun)
 
+  const skyFill = new THREE.HemisphereLight(0x6688cc, 0x443300, 1.2)
+  scene.add(skyFill)
+
   // ─── Terreno ──────────────────────────────────────────────────────────────
-  const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 20, 20)
-  const groundMat = new THREE.MeshLambertMaterial({ color: 0x6b5a3e })
+  const texLoader = new THREE.TextureLoader()
+  const groundTex = texLoader.load('/textures/ground.png')
+  groundTex.wrapS = THREE.RepeatWrapping
+  groundTex.wrapT = THREE.RepeatWrapping
+  groundTex.repeat.set(24, 24)
+  groundTex.colorSpace = THREE.SRGBColorSpace
+
+  const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE * 2, WORLD_SIZE * 2)
+  const groundMat = new THREE.MeshStandardMaterial({ 
+    map: groundTex,
+    roughness: 1,
+    metalness: 0,
+    color: 0x555555 
+  })
   const ground = new THREE.Mesh(groundGeo, groundMat)
   ground.rotation.x = -Math.PI / 2
   ground.receiveShadow = true
   scene.add(ground)
 
-  // Bordes de muro decorativos
-  buildWalls()
+  // Bordes de nivel y árboles
+  buildArena()
 
   // ─── Espada en primera persona (arma del jugador local) ───────────────────
   // Pivote a altura de ojos con solo yaw: la espada no hereda el pitch del ratón; solo anima hacia targets al atacar/bloquear.
@@ -254,7 +291,12 @@ export function useGame(canvas: HTMLCanvasElement) {
 
     // Hoja (+50% largo respecto a 0.88u → 1.32u)
     const bladeGeo = new THREE.BoxGeometry(0.06, 1.32, 0.06)
-    const bladeMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d4, metalness: 0.9, roughness: 0.2 })
+    const bladeMat = new THREE.MeshStandardMaterial({ 
+      color: 0xffffff, 
+      metalness: 1.0, 
+      roughness: 0.15,
+      envMapIntensity: 1.0
+    })
     const blade = new THREE.Mesh(bladeGeo, bladeMat)
     blade.position.y = 0.66
     blade.castShadow = true
@@ -262,14 +304,18 @@ export function useGame(canvas: HTMLCanvasElement) {
 
     // Guardamano
     const guardGeo = new THREE.BoxGeometry(0.30, 0.05, 0.055)
-    const guardMat = new THREE.MeshStandardMaterial({ color: 0x8b6914, metalness: 0.6, roughness: 0.4 })
+    const guardMat = new THREE.MeshStandardMaterial({ 
+      color: 0xffcc33, 
+      metalness: 1.0, 
+      roughness: 0.2 
+    })
     const guard = new THREE.Mesh(guardGeo, guardMat)
     guard.position.y = -0.02
     group.add(guard)
 
     // Empuñadura
     const gripGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.26, 8)
-    const gripMat = new THREE.MeshStandardMaterial({ color: 0x4a2c0a, roughness: 0.9 })
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0x221100, roughness: 0.8 })
     const grip = new THREE.Mesh(gripGeo, gripMat)
     grip.position.y = -0.19
     group.add(grip)
@@ -645,38 +691,72 @@ export function useGame(canvas: HTMLCanvasElement) {
     playClashSound()
   }
 
-  function buildWalls() {
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0x7a6040 })
+  function buildTree(x: number, z: number) {
+    const group = new THREE.Group()
+    group.position.set(x, 0, z)
+    group.scale.setScalar(0.7 + Math.random() * 0.4)
+    group.rotation.y = Math.random() * Math.PI * 2
+
+    const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3, 6)
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 1 })
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat)
+    trunk.position.y = 1.5
+    trunk.castShadow = true
+    trunk.receiveShadow = true
+    group.add(trunk)
+
+    // Foliage texture
+    const fTex = texLoader.load('/textures/foliage.png')
+    fTex.colorSpace = THREE.SRGBColorSpace
+    const fMat = new THREE.MeshStandardMaterial({ 
+      map: fTex, 
+      color: 0x1a4a1a, 
+      roughness: 1,
+      transparent: true,
+      alphaTest: 0.5 
+    })
+
+    // Random leaf blobs
+    for(let i=0; i<3; i++) {
+      const g = new THREE.IcosahedronGeometry(1.6, 0)
+      const m = new THREE.Mesh(g, fMat)
+      m.position.y = 3.5 + i * 1.2
+      m.position.x = (Math.random() - 0.5) * 0.8
+      m.position.z = (Math.random() - 0.5) * 0.8
+      m.scale.set(1, 0.8, 1)
+      m.castShadow = true
+      m.receiveShadow = true
+      group.add(m)
+    }
+
+    scene.add(group)
+  }
+
+  function buildArena() {
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2d1b0a, roughness: 1 })
     const hw = WORLD_SIZE / 2
     const wallConfigs = [
-      { x: 0, z: -hw, rx: 0, w: WORLD_SIZE, h: 4 },
-      { x: 0, z: hw, rx: 0, w: WORLD_SIZE, h: 4 },
-      { x: -hw, z: 0, rx: Math.PI / 2, w: WORLD_SIZE, h: 4 },
-      { x: hw, z: 0, rx: Math.PI / 2, w: WORLD_SIZE, h: 4 },
+      { x: 0, z: -hw, rx: 0, w: WORLD_SIZE, h: 6 },
+      { x: hw, z: 0, rx: Math.PI / 2, w: WORLD_SIZE, h: 6 },
+      { x: 0, z: hw, rx: Math.PI, w: WORLD_SIZE, h: 6 },
+      { x: -hw, z: 0, rx: -Math.PI / 2, w: WORLD_SIZE, h: 6 },
     ]
     wallConfigs.forEach(({ x, z, rx, w, h }) => {
-      const geo = new THREE.BoxGeometry(w, h, 0.5)
+      const geo = new THREE.BoxGeometry(w, h, 2)
       const mesh = new THREE.Mesh(geo, wallMat)
-      mesh.position.set(x, h / 2, z)
+      mesh.position.set(x, h / 2 - 0.2, z)
       mesh.rotation.y = rx
       mesh.castShadow = true
       mesh.receiveShadow = true
       scene.add(mesh)
     })
 
-    // Columnas centrales para dar cover
-    const colMat = new THREE.MeshLambertMaterial({ color: 0x5a4832 })
-    const colPositions = [
-      [10, 10], [-10, 10], [10, -10], [-10, -10],
-      [20, 0], [-20, 0], [0, 20], [0, -20],
+    const treePositions = [
+      [12, 12], [-12, 12], [12, -12], [-12, -12],
+      [22, 0], [-22, 0], [0, 22], [0, -22],
+      [15, 5], [-15, -5], [5, 15], [-5, -15],
     ]
-    colPositions.forEach(([cx, cz]) => {
-      const colGeo = new THREE.CylinderGeometry(0.4, 0.4, 4, 8)
-      const col = new THREE.Mesh(colGeo, colMat)
-      col.position.set(cx, 2, cz)
-      col.castShadow = true
-      scene.add(col)
-    })
+    treePositions.forEach(([x, z]) => buildTree(x, z))
   }
 
   function getOrCreateRemoteMesh(id: string): THREE.Group {

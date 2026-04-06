@@ -69,9 +69,13 @@ watch(
 
 <template>
   <!-- Barra de vida -->
-  <div class="hud-health">
-    <div class="hp-label">{{ localPlayer?.health ?? 0 }} / {{ localPlayer?.maxHealth ?? 100 }}</div>
+  <div class="hud-health-container">
+    <div class="hp-info">
+      <span class="hp-name">{{ localPlayer?.name || 'HERO' }}</span>
+      <span class="hp-values">{{ localPlayer?.health ?? 0 }} / {{ localPlayer?.maxHealth ?? 100 }}</span>
+    </div>
     <div class="hp-bar-bg">
+      <div class="hp-bar-phantom" :style="{ width: hpPercent + '%' }" />
       <div class="hp-bar-fill" :style="{ width: hpPercent + '%', background: hpColor }" />
     </div>
   </div>
@@ -123,26 +127,22 @@ watch(
 
   <!-- Feed de eventos -->
   <div class="event-feed">
-    <TransitionGroup name="fade">
-      <div v-for="(ev, i) in events.slice(-6)" :key="i" class="ev-item">
+    <TransitionGroup name="ev">
+      <div v-for="(ev, i) in events.slice(-5)" :key="i" class="ev-item">
         <template v-if="ev.type === 'PLAYER_KILLED'">
-          <span class="ev-name">{{ resolvePlayerName(ev.attackerId) }}</span>
-          <span class="ev-sep"> killed </span>
-          <span class="ev-name ev-victim">{{ resolvePlayerName(ev.victimId) }}</span>
+          <span class="ev-name-win">{{ resolvePlayerName(ev.attackerId) }}</span>
+          <span class="ev-sep"> ⚔ </span>
+          <span class="ev-name-lose">{{ resolvePlayerName(ev.victimId) }}</span>
         </template>
         <template v-else-if="ev.type === 'PLAYER_HIT'">
-          <span class="ev-name">{{ resolvePlayerName(ev.attackerId) }}</span>
-          <span class="ev-sep"> hit </span>
-          <span class="ev-name ev-victim">{{ resolvePlayerName(ev.victimId) }}</span>
-          <span class="ev-sep"> ({{ ev.zone }}) –{{ ev.damage }}</span>
+          <span class="ev-name-win">{{ resolvePlayerName(ev.attackerId) }}</span>
+          <span class="ev-sep"> ➔ </span>
+          <span class="ev-name-lose">{{ resolvePlayerName(ev.victimId) }}</span>
         </template>
         <template v-else-if="ev.type === 'BLOCK_SUCCESS'">
-          <span class="ev-name">{{ resolvePlayerName(ev.attackerId) }}</span>
-          <span class="ev-sep"> blocked </span>
-          <span class="ev-name">{{ resolvePlayerName(ev.victimId) }}</span>
-        </template>
-        <template v-else>
-          <span class="ev-sep">{{ ev.message }}</span>
+          <span class="ev-name-win">{{ resolvePlayerName(ev.attackerId) }}</span>
+          <span class="ev-sep"> 🛡 </span>
+          <span class="ev-name-win">{{ resolvePlayerName(ev.victimId) }}</span>
         </template>
       </div>
     </TransitionGroup>
@@ -157,76 +157,113 @@ watch(
 </template>
 
 <style scoped>
-/* ── Barra de vida ─────────────────────────────────────── */
-.hud-health {
-  position: absolute;
-  bottom: 32px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 320px;
-  text-align: center;
+/* ── Globales / Tipografía ───────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;600;900&display=swap');
+
+* {
+  font-family: 'Outfit', sans-serif;
 }
 
-.hp-label {
+/* ── Barra de vida ─────────────────────────────────────── */
+.hud-health-container {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 480px;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));
+}
+
+.hp-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.hp-name {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #fff;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.hp-values {
   font-size: 14px;
-  font-weight: bold;
-  margin-bottom: 4px;
-  text-shadow: 0 1px 3px #000;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.7);
   letter-spacing: 1px;
 }
 
 .hp-bar-bg {
+  position: relative;
   width: 100%;
-  height: 14px;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 220, 150, 0.3);
-  border-radius: 7px;
+  height: 10px;
+  background: rgba(20, 20, 25, 0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
 }
 
 .hp-bar-fill {
+  position: absolute;
+  top: 0; left: 0;
   height: 100%;
-  border-radius: 7px;
-  transition: width 0.15s ease, background 0.3s ease;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.6s ease;
+  z-index: 2;
+  box-shadow: 0 0 15px currentColor;
+}
+
+.hp-bar-phantom {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.25);
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 1;
 }
 
 /* ── Aviso de bloqueo ───────────────────────────────────── */
 .block-banner {
   position: absolute;
-  top: 42%;
+  top: 40%;
   left: 50%;
   transform: translate(-50%, -50%);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 14px 22px;
-  border-radius: 10px;
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  text-shadow: 0 2px 6px #000;
+  gap: 4px;
+  padding: 20px 40px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  color: #fff;
   pointer-events: none;
-  z-index: 6;
-  border: 2px solid rgba(255, 255, 255, 0.35);
+  z-index: 10;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
 }
 
 .block-banner.block-ok {
-  background: rgba(20, 90, 40, 0.88);
-  color: #c8ffc8;
+  border-top: 1px solid rgba(0, 255, 120, 0.4);
+  border-bottom: 1px solid rgba(0, 255, 120, 0.4);
+  color: #a0ffd0;
 }
 
 .block-banner.block-bad {
-  background: rgba(110, 30, 20, 0.88);
-  color: #ffcccc;
+  border-top: 1px solid rgba(255, 50, 50, 0.4);
+  border-bottom: 1px solid rgba(255, 50, 50, 0.4);
+  color: #ffb0b0;
 }
 
 .block-icon {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.block-text {
-  white-space: nowrap;
+  font-size: 24px;
+  margin-bottom: 2px;
 }
 
 /* ── Crosshair ──────────────────────────────────────────── */
@@ -235,139 +272,128 @@ watch(
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  width: 4px;
+  height: 4px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #fff;
+  opacity: 0.6;
   pointer-events: none;
-}
-
-.ch-h,
-.ch-v {
-  position: absolute;
-  background: rgba(255, 240, 200, 0.85);
-}
-
-.ch-h {
-  width: 18px;
-  height: 2px;
-  top: -1px;
-  left: -9px;
-}
-
-.ch-v {
-  width: 2px;
-  height: 18px;
-  top: -9px;
-  left: -1px;
 }
 
 /* ── Indicador de swing ─────────────────────────────────── */
 .swing-indicator {
   position: absolute;
-  bottom: 70px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, 60px);
   text-align: center;
-  width: 200px;
+  width: 180px;
 }
 
 .swing-phase {
-  font-size: 13px;
-  font-weight: bold;
-  letter-spacing: 1px;
-  text-shadow: 0 1px 3px #000;
-  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  opacity: 0.9;
 }
 
-.swing-phase.release { color: #ff6644; }
-.swing-phase.windup  { color: #ffaa44; }
-.swing-phase.blocked { color: #4488ff; }
-.swing-phase.idle    { color: #aaaaaa; }
+.swing-phase.release { color: #ff5030; text-shadow: 0 0 10px rgba(255,80,48,0.5); }
+.swing-phase.windup  { color: #ffaa33; text-shadow: 0 0 8px rgba(255,170,51,0.4); }
+.swing-phase.blocked { color: #50a0ff; }
+.swing-phase.idle    { color: #ffffff; }
 
 .stamina-bar {
   width: 100%;
-  height: 6px;
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 3px;
-  overflow: hidden;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: visible;
 }
 
 .stamina-fill {
   height: 100%;
-  background: linear-gradient(90deg, #eeaa00, #ffdd44);
-  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 0 12px #fff;
   transition: width 0.05s linear;
 }
 
 /* ── Leaderboard ────────────────────────────────────────── */
 .leaderboard {
   position: absolute;
-  top: 20px;
-  right: 20px;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(255, 200, 100, 0.25);
-  border-radius: 6px;
-  padding: 10px 14px;
-  min-width: 180px;
-  font-size: 13px;
+  top: 40px;
+  right: 40px;
+  background: rgba(10, 12, 18, 0.4);
+  backdrop-filter: blur(12px);
+  border-left: 2px solid rgba(200, 160, 100, 0.4);
+  padding: 16px 20px;
+  min-width: 220px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
 }
 
 .lb-title {
-  font-weight: bold;
-  font-size: 11px;
-  letter-spacing: 2px;
+  font-weight: 900;
+  font-size: 10px;
+  letter-spacing: 4px;
   color: #c8a860;
-  margin-bottom: 8px;
-  text-align: center;
+  margin-bottom: 15px;
+  text-transform: uppercase;
 }
 
 .lb-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0;
-  color: #ddd;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 13px;
+  letter-spacing: 0.5px;
 }
 
-.lb-self {
-  color: #ffdd88;
-  font-weight: bold;
-}
-
-.lb-kills {
-  color: #ff8844;
-  font-weight: bold;
-}
+.lb-self { color: #ffdd88; font-weight: 600; }
+.lb-kills { font-weight: 900; }
 
 /* ── Event feed ─────────────────────────────────────────── */
 .event-feed {
   position: absolute;
-  bottom: 100px;
-  left: 20px;
-  font-size: 13px;
+  top: 40px;
+  left: 40px;
   pointer-events: none;
 }
 
 .ev-item {
-  background: rgba(0, 0, 0, 0.45);
-  border-radius: 4px;
-  padding: 3px 8px;
-  margin-bottom: 3px;
-  text-shadow: 0 1px 2px #000;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  animation: evIn 0.3s ease-out forwards;
 }
 
-.ev-name { color: #ffcc66; font-weight: bold; }
-.ev-victim { color: #ff6655; }
-.ev-sep { color: #aaa; }
+@keyframes evIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.4s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.ev-name-win { color: #fff; }
+.ev-name-lose { color: rgba(255, 255, 255, 0.4); }
+.ev-sep { color: #c8a860; margin: 0 8px; }
 
 /* ── Esquina stats ──────────────────────────────────────── */
 .corner-stats {
   position: absolute;
-  top: 20px;
-  left: 20px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  line-height: 1.6;
+  bottom: 40px;
+  right: 40px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.3);
+  text-transform: uppercase;
+  display: flex;
+  gap: 20px;
   pointer-events: none;
 }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.5s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
