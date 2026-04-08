@@ -16,23 +16,23 @@ public class GameConfig {
 
     // ─── Combate ──────────────────────────────────────────────────────────
     // Duración de cada fase de swing (ms)
-    public long windupMs = 300;
-    public long releaseMs = 200;
-    public long recoveryMs = 350;
-    public long blockedMs = 250;
+    public long windupMs = 550;
+    public long releaseMs = 300;
+    public long recoveryMs = 500;
+    public long blockedMs = 400;
 
     /** Alcance del golpe (mundo); coincide con la esfera/cilindro lógico de detectHit, no con el mesh de la espada. */
-    public double hitReach = 2.0;
+    public double hitReach = 2.4;
 
     // Daño base
     public int baseDamage = 35;
 
     // Stamina
     public float staminaRegenPerTick = 0.05f;
-    public float staminaMinToAttack = 0.30f;
+    public float staminaMinToAttack = 0.15f;
     public float staminaFullDamageThreshold = 0.45f;
     public float staminaCostSuccess = 0.20f;
-    public float staminaCostMiss = 0.20f;
+    public float staminaCostMiss = 0.15f;
 
     // Respawn delay ms
     public long respawnDelayMs = 3000;

@@ -54,12 +54,18 @@ public class GameRoom {
         this.roundEndTime = System.currentTimeMillis() + cfg.roundDurationMs;
         this.destructibles.clear();
         
-        // Castillo (Norte, z = +75)
-        destructibles.add(new Destructible(Destructible.Type.CASTLE, 0, cfg.worldDepth/2.0 - 5.0, 15, 10, 1200));
-        
-        // Murallas defensivas (z = +55)
+        // Castillo de los Caballeros (Norte, z ≈ +75)
+        destructibles.add(new Destructible(Destructible.Type.CASTLE, 0, cfg.worldDepth/2.0 - 5.0, 15, 10, 2000, Team.KNIGHT));
+        // Murallas de los Caballeros (z ≈ +55)
         for (int i = -1; i <= 1; i++) {
-            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, 55, 15, 3, 600));
+            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, cfg.worldDepth/2.0 - 25.0, 15, 3, 800, Team.KNIGHT));
+        }
+
+        // Base de los Bárbaros (Sur, z ≈ -75)
+        destructibles.add(new Destructible(Destructible.Type.CASTLE, 0, -cfg.worldDepth/2.0 + 5.0, 15, 10, 2000, Team.BARBARIAN));
+        // Murallas de los Bárbaros (z ≈ -55)
+        for (int i = -1; i <= 1; i++) {
+            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, -cfg.worldDepth/2.0 + 25.0, 15, 3, 800, Team.BARBARIAN));
         }
 
         // Posicionar jugadores
@@ -148,6 +154,7 @@ public class GameRoom {
         }
 
         physics.resolveCollisions(activePlayers.values());
+        physics.resolveWorldCollisions(activePlayers.values(), destructibles);
         List<GameEvent> events = processCombat(now);
         checkRoundEnd(now, events);
 
@@ -170,13 +177,21 @@ public class GameRoom {
 
             if (inp == null) continue;
 
-            // Inicio de ataque: WINDUP solo si tiene suficiente stamina
-            if (inp.attackStart && attacker.swingPhase == SwingPhase.IDLE) {
+            // Inicio de ataque: WINDUP si está IDLE o terminando RECOVERY
+            boolean canAttack = attacker.swingPhase == SwingPhase.IDLE;
+            if (attacker.swingPhase == SwingPhase.RECOVERY) {
+               // Permitir "encadenar" si queda menos del 25% de la recuperación
+               long remaining = attacker.swingPhaseEnd - now;
+               if (remaining < (cfg.recoveryMs * 0.25)) canAttack = true;
+            }
+
+            if (inp.attackStart && canAttack) {
                 if (attacker.stamina >= cfg.staminaMinToAttack) {
                     attacker.swingPhase = SwingPhase.WINDUP;
                     attacker.swingDir = inp.swingDir;
                     attacker.swingPhaseEnd = 0L; 
                     attacker.blocking = false; // Atacar cancela el bloqueo
+                    attacker.hitIdsThisRelease.clear(); // Limpiar hits del swing anterior
                 }
             }
 
@@ -221,14 +236,12 @@ public class GameRoom {
 
             // Detectar hits durante RELEASE
             if (attacker.swingPhase == SwingPhase.RELEASE) {
-                // 1. Hits sobre destructibles (Solo barbaros pueden destruir)
-                if (attacker.team == Team.BARBARIAN) {
-                    for (Destructible d : destructibles) {
-                        if (d.alive() && physics.detectDestructibleHit(attacker, d)) {
-                            // Danamos el muro
+                // 1. Hits sobre destructibles (Cualquiera daña la base enemiga)
+                for (Destructible d : destructibles) {
+                    if (d.alive() && d.team != attacker.team && physics.detectDestructibleHit(attacker, d)) {
+                        if (!attacker.hitIdsThisRelease.contains(d.id)) {
                             d.health -= calculateDamage(attacker, new HitResult(true, HitZone.TORSO, 1.0f));
                             attacker.hitIdsThisRelease.add(d.id);
-                            log.debug("DBLE: {} golpeó {} | health {}", attacker.name, d.type, d.health);
                         }
                     }
                 }

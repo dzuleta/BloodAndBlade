@@ -54,6 +54,51 @@ public class PhysicsWorld {
     }
 
     /**
+     * Resuelve colisiones entre jugadores y objetos destructibles (Muros/Castillos).
+     */
+    public void resolveWorldCollisions(Collection<Player> players, Collection<com.bloodblade.game.model.Destructible> world) {
+        for (Player p : players) {
+            if (!p.alive) continue;
+            for (com.bloodblade.game.model.Destructible d : world) {
+                if (!d.alive()) continue;
+                
+                // AABB simplificado para el objeto destructible
+                double hw = d.width / 2.0;
+                double hd = d.depth / 2.0;
+                
+                // Encontrar el punto más cercano en el rectángulo al jugador
+                double closestX = Math.max(d.x - hw, Math.min(p.x, d.x + hw));
+                double closestZ = Math.max(d.z - hd, Math.min(p.z, d.z + hd));
+                
+                double dx = p.x - closestX;
+                double dz = p.z - closestZ;
+                double distSq = dx * dx + dz * dz;
+                double r = 0.45;
+                
+                // Si el centro del jugador está DENTRO del objeto (dx=0, dz=0)
+                if (distSq < 0.0001) {
+                    // Puntos de empuje según el lado más cercano
+                    double pX = p.x - d.x;
+                    double pZ = p.z - d.z;
+                    if (Math.abs(pX/hw) > Math.abs(pZ/hd)) {
+                        p.x = d.x + Math.signum(pX) * (hw + r);
+                    } else {
+                        p.z = d.z + Math.signum(pZ) * (hd + r);
+                    }
+                    continue;
+                }
+
+                if (distSq < r * r) {
+                    double dist = Math.sqrt(distSq);
+                    double overlap = r - dist;
+                    p.x += (dx / dist) * overlap;
+                    p.z += (dz / dist) * overlap;
+                }
+            }
+        }
+    }
+
+    /**
      * Detecta si el swing del atacante impacta al defensor.
      *
      * Convención de coordenadas del juego:

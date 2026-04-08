@@ -27,8 +27,8 @@ export function useInput(canvas: HTMLElement) {
   // Acumulador de movimiento relativo desde que se apretó el botón (para dirección de combate)
   let swingAccX = 0
   let swingAccY = 0
-  let isLeftHeld = false
-  let isRightHeld = false
+  const isLeftHeld = ref(false)
+  const isRightHeld = ref(false)
 
   // Píxeles acumulados mínimos para confirmar una dirección
   const SWING_THRESHOLD = 35
@@ -50,12 +50,17 @@ export function useInput(canvas: HTMLElement) {
     mouseDY += e.movementY
 
     // Acumular movimiento relativo mientras se tenga un botón apretado
-    if (isLeftHeld || isRightHeld) {
+    if (isLeftHeld.value || isRightHeld.value) {
       swingAccX += e.movementX
       swingAccY += e.movementY
       const dist = Math.sqrt(swingAccX * swingAccX + swingAccY * swingAccY)
-      if (dist >= SWING_THRESHOLD) {
-        swingDir.value = calcSwingDir(swingAccX, swingAccY)
+      
+      // Si es el inicio del movimiento o pasamos el threshold, actualizamos
+      if (dist >= 2) { 
+        const newDir = calcSwingDir(swingAccX, swingAccY)
+        if (dist >= SWING_THRESHOLD || swingDir.value !== newDir) {
+           swingDir.value = newDir
+        }
       }
     }
   }
@@ -87,22 +92,22 @@ export function useInput(canvas: HTMLElement) {
     swingAccY = 0
     if (e.button === 0) {
       attackStart.value = true
-      isLeftHeld = true
+      isLeftHeld.value = true
     }
     if (e.button === 2) {
       blockDown.value = true
-      isRightHeld = true
+      isRightHeld.value = true
     }
   }
 
   function onMouseUp(e: MouseEvent) {
     if (e.button === 0) {
       attackRelease.value = true
-      isLeftHeld = false
+      isLeftHeld.value = false
     }
     if (e.button === 2) {
       blockUp.value = true
-      isRightHeld = false
+      isRightHeld.value = false
     }
   }
 
@@ -198,12 +203,16 @@ export function useInput(canvas: HTMLElement) {
 
   function getCombatState() {
     return {
-      isLeftHeld,
-      isRightHeld,
+      isLeftHeld: isLeftHeld.value,
+      isRightHeld: isRightHeld.value,
       swingDir: swingDir.value,
       swingMagnitude: Math.sqrt(swingAccX * swingAccX + swingAccY * swingAccY),
     }
   }
 
-  return { locked, yaw, pitch, requestLock, sampleMovement, consumeFrame, getCombatState }
+  return { 
+      locked, yaw, pitch, 
+      requestLock, sampleMovement, consumeFrame, getCombatState,
+      swingDir, isLeftHeld, isRightHeld 
+  }
 }

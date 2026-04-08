@@ -10,6 +10,8 @@ const props = defineProps<{
   ping: number
   roundTimeLeft: number
   currentTeam: string
+  intendedSwingDir?: string
+  isCharging?: boolean
 }>()
 
 function formatTime(ms: number) {
@@ -46,41 +48,56 @@ const hpColor = computed(() => {
 /** Aviso de bloqueo: tú rechazaste el golpe / te rechazaron el golpe */
 const blockBanner = ref<'none' | 'you_blocked' | 'got_blocked'>('none')
 let blockBannerTimer: ReturnType<typeof setTimeout> | null = null
+const showHitMarker = ref(false)
+const showKillMessage = ref(false)
+let hitMarkerTimer: any = null
+let killMessageTimer: any = null
 
-watch(
-  () => props.events.length,
-  (_, oldLen) => {
-    // Procesar todos los eventos nuevos (por si llegaron varios en un tick)
-    const newEvents = props.events.slice(oldLen)
-    if (!props.localPlayer) return
+  watch(
+    () => props.events,
+    (evs) => {
+      if (!props.localPlayer || evs.length === 0) return
+      // Tomamos el último evento (o podríamos procesar un buffer, pero el último es lo más crítico)
+      const ev = evs[evs.length - 1]
+      
+      let found: 'none' | 'you_blocked' | 'got_blocked' = 'none'
 
-    for (const ev of newEvents) {
-      if (ev.type !== 'BLOCK_SUCCESS') continue
-
-      if (blockBannerTimer) clearTimeout(blockBannerTimer)
+      if (ev.type === 'BLOCK_SUCCESS') {
+          if (ev.attackerId === props.localPlayer.id) found = 'you_blocked'
+          else if (ev.victimId === props.localPlayer.id) found = 'got_blocked'
+      }
       
       if (ev.attackerId === props.localPlayer.id) {
-        blockBanner.value = 'you_blocked'
-      } else if (ev.victimId === props.localPlayer.id) {
-        blockBanner.value = 'got_blocked'
-      } else {
-        continue
+          if (ev.type === 'PLAYER_HIT') {
+              showHitMarker.value = true
+              if (hitMarkerTimer) clearTimeout(hitMarkerTimer)
+              hitMarkerTimer = setTimeout(() => showHitMarker.value = false, 400)
+          }
+          if (ev.type === 'PLAYER_KILLED') {
+              showKillMessage.value = true
+              if (killMessageTimer) clearTimeout(killMessageTimer)
+              killMessageTimer = setTimeout(() => showKillMessage.value = false, 3000)
+          }
       }
 
-      blockBannerTimer = setTimeout(() => {
-        blockBanner.value = 'none'
-        blockBannerTimer = null
-      }, 1800)
-    }
-  },
-)
+      if (found !== 'none') {
+        blockBanner.value = found
+        if (blockBannerTimer) clearTimeout(blockBannerTimer)
+        blockBannerTimer = setTimeout(() => {
+          blockBanner.value = 'none'
+          blockBannerTimer = null
+        }, 2000)
+      }
+    },
+    { deep: true }
+  )
 </script>
 
 <template>
   <!-- Temporizador de Ronda -->
   <div class="round-timer">
     <div class="timer-value">{{ formatTime(roundTimeLeft) }}</div>
-    <div class="timer-label">OBJETIVE: {{ currentTeam === 'BARBARIAN' ? 'DESTROY CASTLE' : 'DEFEND CASTLE' }}</div>
+    <div class="timer-label">OBJECTIVE: DESTROY ENEMY BASE</div>
   </div>
 
   <!-- Barra de vida -->
@@ -108,10 +125,23 @@ watch(
       <span v-if="blockBanner === 'you_blocked'" class="block-icon">✓</span>
       <span v-else class="block-icon">✕</span>
       <span class="block-text">
-        {{ blockBanner === 'you_blocked' ? 'You blocked the blow' : 'They blocked you' }}
+        {{ blockBanner === 'you_blocked' ? 'YOU BLOCKED THE BLOW' : 'THEY BLOCKED YOU' }}
       </span>
     </div>
   </Transition>
+
+  <div class="combat-feedback" v-if="showHitMarker">
+    <div class="hit-marker">╳</div>
+  </div>
+  
+  <div class="kill-marker" v-if="showKillMessage">
+    <div class="kill-text">FOE ELIMINATED</div>
+  </div>
+
+  <div class="death-overlay" v-if="localPlayer && localPlayer.health <= 0">
+    <div class="death-msg">YOU ARE DEAD</div>
+    <div class="death-sub">Wait for respawn...</div>
+  </div>
 
   <!-- Crosshair -->
   <div class="crosshair">
@@ -122,7 +152,12 @@ watch(
   <!-- Dirección de swing actual -->
   <div class="swing-indicator" v-if="localPlayer">
     <div class="swing-phase" :class="localPlayer.swingPhase.toLowerCase()">
-      {{ localPlayer.blocking ? '🛡 ' + localPlayer.blockDir : '⚔ ' + localPlayer.swingDir }}
+      <template v-if="isCharging">
+        {{ localPlayer.blocking ? '🛡 ' : '⚔ ' }}{{ intendedSwingDir }}
+      </template>
+      <template v-else>
+        {{ localPlayer.blocking ? '🛡 ' + localPlayer.blockDir : '⚔ ' + localPlayer.swingDir }}
+      </template>
     </div>
     <div class="stamina-bar">
       <div class="stamina-fill" :style="{ width: (localPlayer.momentum * 100) + '%' }" />
@@ -453,4 +488,87 @@ watch(
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.5s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* ── Combat Feedback / Markers ───────────────────────────── */
+.combat-feedback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 100;
+}
+
+.hit-marker {
+  font-size: 32px;
+  color: #fff;
+  font-weight: 300;
+  text-shadow: 0 0 10px rgba(255,255,255,0.8);
+  animation: hitIn 0.1s ease-out;
+}
+
+@keyframes hitIn {
+  from { transform: scale(0.5); opacity: 0; }
+  to { transform: scale(1.2); opacity: 1; }
+}
+
+.kill-marker {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 101;
+  text-align: center;
+}
+
+.kill-text {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  color: #ffdd44;
+  text-shadow: 0 0 20px rgba(255, 200, 0, 0.6);
+  animation: killIn 0.4s cubic-bezier(0.17, 0.89, 0.32, 1.49);
+}
+
+@keyframes killIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.death-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: radial-gradient(circle, rgba(60, 0, 0, 0.4) 0%, rgba(0,0,0,0.85) 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 200;
+  backdrop-filter: grayscale(1) blur(4px);
+  animation: deathFade 1s ease-out forwards;
+}
+
+@keyframes deathFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.death-msg {
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 12px;
+  color: #ff2222;
+  text-shadow: 0 0 30px rgba(255, 0, 0, 0.5);
+  margin-bottom: 10px;
+}
+
+.death-sub {
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: #fff;
+  opacity: 0.6;
+  text-transform: uppercase;
+}
 </style>

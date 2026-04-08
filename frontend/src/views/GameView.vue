@@ -13,7 +13,7 @@ const showQueue = ref(false)
 
 const network = useNetwork()
 const game = shallowRef<ReturnType<typeof useGame> | null>(null)
-let input: ReturnType<typeof useInput> | null = null
+const input = shallowRef<ReturnType<typeof useInput> | null>(null)
 
 // ─── Input loop a 30 Hz ───────────────────────────────────────────────────
 let inputIntervalId: ReturnType<typeof setInterval> | null = null
@@ -52,7 +52,7 @@ onMounted(() => {
 
   const g = useGame(canvas)
   game.value = g
-  input = useInput(canvas)
+  input.value = useInput(canvas)
 
   g.localId.value = ''
 
@@ -80,8 +80,8 @@ onMounted(() => {
 
   // Enviar inputs a 30 Hz
   inputIntervalId = setInterval(() => {
-    if (!input || network.status.value !== 'IN_GAME') return
-    const frame = input.consumeFrame()
+    if (!input.value || network.status.value !== 'IN_GAME') return
+    const frame = input.value.consumeFrame()
     network.sendInput(
       network.nextSeq(),
       frame.move,
@@ -124,10 +124,10 @@ onMounted(() => {
   // Game loop visual
   g.startLoop((dt: number) => {
     const gv = game.value
-    if (!input || !gv) return
+    if (!input.value || !gv) return
 
     // Predicción local (sin esperar snapshot)
-    const movement = input.sampleMovement()
+    const movement = input.value.sampleMovement()
     gv.applyLocalMovement(movement.move.x, movement.move.z, movement.yaw, movement.pitch, dt)
 
     // Aplicar correcciones del servidor y actualizar remotes
@@ -139,7 +139,7 @@ onMounted(() => {
 
     // Animación: mantener LMB = carga (WINDUP, sin daño); soltar = RELEASE hasta que el snapshot avance.
     // La espada en 3ª persona copia la matriz mundial de esta misma espada (mismo movimiento que en 1ª).
-    const combat = input.getCombatState()
+    const combat = input.value.getCombatState()
     if (combat.isLeftHeld || combat.isRightHeld) {
       gv.setSwordFromInput(combat.isLeftHeld, combat.isRightHeld, combat.swingDir, combat.swingMagnitude)
     } else if (snap) {
@@ -180,6 +180,8 @@ function backToLobby() {
       :ping="network.pingMs.value"
       :round-time-left="game?.roundTimeLeft.value ?? 0"
       :current-team="game?.localPlayerTeam.value ?? ''"
+      :intended-swing-dir="input?.swingDir.value"
+      :is-charging="input?.isLeftHeld.value || input?.isRightHeld.value"
     />
 
     <!-- Overlay de cola de espera -->
@@ -213,7 +215,7 @@ function backToLobby() {
 
     <!-- Click para capturar cursor -->
     <Transition name="fade">
-      <div v-if="network.status.value === 'IN_GAME' && !(input?.locked.value)" class="lock-hint" @click="input?.requestLock()">
+      <div v-if="network.status.value === 'IN_GAME' && !(input?.locked)" class="lock-hint" @click="input?.requestLock()">
         Click to play
       </div>
     </Transition>

@@ -61,15 +61,13 @@ public class Player {
     }
 
     public void spawnAtRandom() {
-        double hw = cfg.worldWidth / 2.0 - 2.0;
-        double hd = cfg.worldDepth / 2.0 - 5.0; // margen para el castillo/spawn
+        // Spawn aleatorio seguro (lejos de los castillos que están en +-70)
+        this.x = (Math.random() * 2 - 1) * 25.0;
         
-        this.x = (Math.random() * 2 - 1) * hw;
-        // Barbaros (asaltantes) aparecen al sur (z < 0), Caballeros (defensores) al norte (z > 0)
         if (team == Team.BARBARIAN) {
-            this.z = -hd + (Math.random() * 10); // franja de 10 unidades
+            this.z = -40.0 + (Math.random() * 10); // Entre -30 y -40
         } else {
-            this.z = hd - (Math.random() * 10); 
+            this.z = 40.0 - (Math.random() * 10);  // Entre 30 y 40
         }
         
         this.y = 0;

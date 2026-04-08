@@ -64,7 +64,7 @@ export function useGame(canvas: HTMLCanvasElement) {
   const localId = ref('')
   const localPlayerTeam = ref('')
   const roundTimeLeft = ref(0)
-  const destructibleMeshes = new Map<string, THREE.Mesh>()
+  const destructibleMeshes = new Map<string, THREE.Group>()
 
   // ─── Three.js core ────────────────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
@@ -173,12 +173,12 @@ export function useGame(canvas: HTMLCanvasElement) {
     localPlayerTeam.value = teamStr
     WORLD_SIZE_W = w
     WORLD_SIZE_D = d
-    
+
     // Reconstruir terreno
     ground.geometry.dispose()
     ground.geometry = new THREE.PlaneGeometry(w, d)
     ground.material.map!.repeat.set(w / 4, d / 4)
-    
+
     // Reconstruir arena
     scene.children.filter(c => c.userData.isWall).forEach(c => scene.remove(c))
     buildArena()
@@ -310,8 +310,8 @@ export function useGame(canvas: HTMLCanvasElement) {
   function buildSword(): THREE.Group {
     const group = new THREE.Group()
 
-    // Hoja (+50% largo respecto a 0.88u → 1.32u)
-    const bladeGeo = new THREE.BoxGeometry(0.06, 1.32, 0.06)
+    // Hoja (doble grosor y +20% largo: 1.32 * 1.2 ≈ 1.58)
+    const bladeGeo = new THREE.BoxGeometry(0.12, 1.58, 0.12)
     const bladeMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       metalness: 1.0,
@@ -319,7 +319,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       envMapIntensity: 1.0
     })
     const blade = new THREE.Mesh(bladeGeo, bladeMat)
-    blade.position.y = 0.66
+    blade.position.y = 0.79
     blade.castShadow = true
     group.add(blade)
 
@@ -347,7 +347,7 @@ export function useGame(canvas: HTMLCanvasElement) {
   function playerVariant(playerId: string): 'barbarian' | 'knight' {
     if (playerId === '__preview__') return (localPlayerTeam.value === 'BARBARIAN' ? 'barbarian' : 'knight')
     if (localId.value.length > 0 && playerId === localId.value) return (localPlayerTeam.value === 'BARBARIAN' ? 'barbarian' : 'knight')
-    
+
     // Si es un remoto, intentar obtener su equipo del último snapshot
     const snap = localSnapshot.value
     if (snap) {
@@ -567,13 +567,28 @@ export function useGame(canvas: HTMLCanvasElement) {
   let hitAudioCtx: AudioContext | null = null
   const hitBursts: { g: THREE.Group; t: number }[] = []
 
-  function playHitImpactSound() {
+  function playHitImpactSound(pos?: THREE.Vector3) {
     try {
-      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      if (!AC) return
-      if (!hitAudioCtx) hitAudioCtx = new AC()
-      const ctx = hitAudioCtx
-      if (ctx.state === 'suspended') void ctx.resume()
+      if (!hitAudioCtx) {
+        const AC = window.AudioContext || (window as any).webkitAudioContext
+        if (AC) hitAudioCtx = new AC()
+        else return
+      }
+      const ctx = hitAudioCtx!
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => { })
+      }
+
+      // --- Audio de proximidad ---
+      let volume = 0.55
+      if (pos) {
+        const lPos = new THREE.Vector3(localX, localY, localZ)
+        const dist = pos.distanceTo(lPos)
+        if (dist > 35) return // No reproducir lejos
+        volume = Math.max(0, 0.6 * (1 - dist / 35))
+        if (volume < 0.01) return
+      }
+
       const t0 = ctx.currentTime
       const nSamples = Math.floor(ctx.sampleRate * 0.1)
       const buf = ctx.createBuffer(1, nSamples, ctx.sampleRate)
@@ -588,7 +603,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       f.type = 'lowpass'
       f.frequency.value = 700
       const gn = ctx.createGain()
-      gn.gain.value = 0.55
+      gn.gain.value = volume
       noise.connect(f)
       f.connect(gn)
       gn.connect(ctx.destination)
@@ -599,7 +614,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       osc.type = 'square'
       osc.frequency.setValueAtTime(220, t0)
       osc.frequency.exponentialRampToValueAtTime(90, t0 + 0.07)
-      g2.gain.setValueAtTime(0.06, t0)
+      g2.gain.setValueAtTime(0.06 * (volume / 0.55), t0)
       g2.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.09)
       osc.connect(g2)
       g2.connect(ctx.destination)
@@ -658,7 +673,7 @@ export function useGame(canvas: HTMLCanvasElement) {
   /** Partículas + sonido cuando un hit conecta (la espada sigue el RELEASE del servidor sin congelar en contacto) */
   function applyHitImpact(x: number, y: number, z: number) {
     spawnHitBlood(x, y, z)
-    playHitImpactSound()
+    //playHitImpactSound()
   }
 
   function playClashSound() {
@@ -715,7 +730,7 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   function applyClashImpact(x: number, y: number, z: number) {
     spawnClashSparks(x, y, z)
-    playClashSound()
+    //playClashSound()
   }
 
   function buildTree(x: number, z: number) {
@@ -762,11 +777,11 @@ export function useGame(canvas: HTMLCanvasElement) {
   function buildArena() {
     // Arena dinámica basada en WORLD_SIZE_W y WORLD_SIZE_D
     scene.children.filter(c => c.userData.isWall).forEach(c => scene.add(c)) // Clean old walls if any? Actually buildArena is only called once.
-    
+
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x2d1b0a, roughness: 1 })
     const hW = WORLD_SIZE_W / 2
     const hD = WORLD_SIZE_D / 2
-    
+
     const wallConfigs = [
       { x: 0, z: -hD, rx: 0, w: WORLD_SIZE_W, h: 8 },
       { x: hW, z: 0, rx: Math.PI / 2, w: WORLD_SIZE_D, h: 8 },
@@ -823,6 +838,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     const bgGeo = new THREE.PlaneGeometry(1.0, 0.12)
     const bgMat = new THREE.MeshBasicMaterial({ color: 0x330000, depthTest: false, transparent: true, opacity: 0.7 })
     const bg = new THREE.Mesh(bgGeo, bgMat)
+    bg.name = 'hpBg'
     bg.renderOrder = 999
     g.add(bg)
 
@@ -835,6 +851,83 @@ export function useGame(canvas: HTMLCanvasElement) {
     g.add(fg)
 
     return g
+  }
+
+  function buildDestructibleModel(obj: any): THREE.Group {
+    const group = new THREE.Group()
+    const isCastle = obj.type === 'CASTLE'
+    const color = isCastle ? 0x666666 : 0x554433
+    const mat = new THREE.MeshStandardMaterial({
+      color: color,
+      metalness: 0.1,
+      roughness: 0.8
+    })
+
+    if (isCastle) {
+      // Main keep
+      const keepGeo = new THREE.BoxGeometry(obj.width, 14, obj.depth)
+      const keep = new THREE.Mesh(keepGeo, mat)
+      keep.position.y = 7
+      keep.castShadow = true
+      keep.receiveShadow = true
+      group.add(keep)
+
+      // Corner Towers
+      const tw = obj.width * 0.25
+      const th = 18
+      const towerGeo = new THREE.BoxGeometry(tw, th, tw)
+      const corners = [
+        [obj.width / 2, obj.depth / 2],
+        [-obj.width / 2, obj.depth / 2],
+        [obj.width / 2, -obj.depth / 2],
+        [-obj.width / 2, -obj.depth / 2]
+      ]
+      corners.forEach(([cx, cz]) => {
+        const tower = new THREE.Mesh(towerGeo, mat.clone())
+        tower.position.set(cx, th / 2, cz)
+        tower.castShadow = true
+        tower.receiveShadow = true
+        group.add(tower)
+      })
+
+      // Crenellations (teeth on top)
+      const toothGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2)
+      for (let x = -obj.width / 2; x <= obj.width / 2; x += 2.5) {
+        const t1 = new THREE.Mesh(toothGeo, mat.clone()); t1.position.set(x, 14.5, obj.depth / 2); group.add(t1)
+        const t2 = new THREE.Mesh(toothGeo, mat.clone()); t2.position.set(x, 14.5, -obj.depth / 2); group.add(t2)
+      }
+      for (let z = -obj.depth / 2; z <= obj.depth / 2; z += 2.5) {
+        const t1 = new THREE.Mesh(toothGeo, mat.clone()); t1.position.set(obj.width / 2, 14.5, z); group.add(t1)
+        const t2 = new THREE.Mesh(toothGeo, mat.clone()); t2.position.set(-obj.width / 2, 14.5, z); group.add(t2)
+      }
+    } else {
+      // Wall
+      const wallGeo = new THREE.BoxGeometry(obj.width, 6, obj.depth)
+      const wall = new THREE.Mesh(wallGeo, mat)
+      wall.position.y = 3
+      wall.castShadow = true
+      wall.receiveShadow = true
+      group.add(wall)
+
+      // Wall teeth
+      const toothGeo = new THREE.BoxGeometry(1, 1, 0.8)
+      for (let x = -obj.width / 2; x <= obj.width / 2; x += 2) {
+        const tooth = new THREE.Mesh(toothGeo, mat.clone())
+        tooth.position.set(x, 6.5, 0)
+        group.add(tooth)
+      }
+    }
+
+    group.position.set(obj.x, 0, obj.z)
+
+    // Health Bar
+    const hpBar = buildHealthBar()
+    hpBar.name = 'healthBar'
+    hpBar.position.y = isCastle ? 20 : 8
+    hpBar.scale.set(5.0, 3.5, 1) // Barra representativa
+    group.add(hpBar)
+
+    return group
   }
 
   function updateRemoteHealthBar(group: THREE.Group, hp: number, maxHp: number) {
@@ -980,41 +1073,52 @@ export function useGame(canvas: HTMLCanvasElement) {
     const lerp = dist > 3 ? 1 : 0.15
     localX += dx * lerp
     localZ += dz * lerp
-    localY = me.y
+    localY = me.health <= 0 ? 0.3 : me.y
   }
 
   // ─── Interpolación de jugadores remotos ──────────────────────────────────
   function pushSnapshot(snap: WorldSnapshot) {
     if (snap.roundTimeLeft !== undefined) roundTimeLeft.value = snap.roundTimeLeft
-    
+
     // Actualizar objetos destructibles
     if (snap.worldObjects) {
       snap.worldObjects.forEach((obj: any) => {
         let m = destructibleMeshes.get(obj.id)
         if (!m) {
-          const isCastle = obj.type === 'CASTLE'
-          const geo = new THREE.BoxGeometry(obj.width, isCastle ? 14 : 6, obj.depth)
-          const mat = new THREE.MeshStandardMaterial({ 
-            color: isCastle ? 0x444444 : 0x332211,
-            metalness: 0.1,
-            roughness: 0.8
-          })
-          m = new THREE.Mesh(geo, mat)
-          m.position.set(obj.x, (isCastle ? 7 : 3), obj.z)
-          m.castShadow = true
-          m.receiveShadow = true
+          m = buildDestructibleModel(obj)
           scene.add(m)
           destructibleMeshes.set(obj.id, m)
         }
-        
-        // Efecto visual según salud
-        const hpPct = obj.health / obj.maxHealth
+
+        // Efecto visual según salud y visibilidad
+        const hpPct = Math.max(0, obj.health / obj.maxHealth)
         m.visible = hpPct > 0
-        if (m.material instanceof THREE.MeshStandardMaterial) {
-          m.material.color.set(obj.type === 'CASTLE' ? 0x444444 : 0x332211).multiplyScalar(0.3 + 0.7 * hpPct)
+
+        // Actualizar barra de vida del objeto
+        const bar = m.getObjectByName('healthBar') as THREE.Group | undefined
+        if (bar) {
+          const fill = bar.getObjectByName('hpFill') as THREE.Mesh | undefined
+          if (fill) {
+            fill.scale.x = hpPct
+            fill.position.x = -(1 - hpPct) / 2
+            const mat = fill.material as THREE.MeshBasicMaterial
+            mat.color.setHex(hpPct > 0.5 ? 0x22bb22 : hpPct > 0.25 ? 0xffaa00 : 0xcc0000)
+          }
+          // Hacer que la barra mire a la cámara
+          const camPos = thirdPerson.value ? cameraThird.position : camera.position
+          bar.lookAt(camPos)
         }
+
+        // Oscurecer el modelo según daño
+        m.traverse(child => {
+          if (child instanceof THREE.Mesh && child.name !== 'hpFill' && child.name !== 'hpBg') {
+            if (child.material instanceof THREE.MeshStandardMaterial) {
+              child.material.color.setHex(obj.type === 'CASTLE' ? 0x666666 : 0x554433).multiplyScalar(0.4 + 0.6 * hpPct)
+            }
+          }
+        })
       })
-      
+
       // Limpiar objetos eliminados del servidor
       destructibleMeshes.forEach((mesh, id) => {
         if (!snap.worldObjects.some(o => o.id === id)) {
@@ -1068,6 +1172,7 @@ export function useGame(canvas: HTMLCanvasElement) {
       const pAfter = after?.players.get(id)
 
       const mesh = getOrCreateRemoteMesh(id)
+      mesh.visible = true
 
       let tx: number, ty: number, tz: number, tyaw: number
       let health = 100, maxHealth = 100
@@ -1089,21 +1194,39 @@ export function useGame(canvas: HTMLCanvasElement) {
 
       mesh.position.set(tx, ty, tz)
       mesh.rotation.y = -tyaw
-      updateRemoteHealthBar(mesh, health, maxHealth)
+
+      const isDead = health <= 0
+      if (isDead) {
+        // Efecto visual de muerte: tumbado en el suelo
+        mesh.rotation.x = Math.PI / 2
+        mesh.position.y = 0.15
+        updateRemoteHealthBar(mesh, 0, maxHealth)
+        // Ocultar barra de vida si está muerto
+        const bar = mesh.getObjectByName('healthBar')
+        if (bar) bar.visible = false
+      } else {
+        mesh.rotation.x = 0
+        mesh.position.y = ty
+        updateRemoteHealthBar(mesh, health, maxHealth)
+        const bar = mesh.getObjectByName('healthBar')
+        if (bar) bar.visible = true
+      }
 
       // Animación de espada: usar el snapshot más reciente disponible
       const rp = pAfter ?? pBefore
-      if (rp) {
+      if (rp && !isDead) {
         animateRemoteSword(mesh, rp.swingPhase, rp.swingDir, rp.blocking, rp.blockDir, dt)
       }
 
       // Animación de cuerpo (Locomoción)
       const mixer = mixers.get(id)
-      if (mixer && sharedClips.walk && sharedClips.idle) {
+      if (mixer && sharedClips.walk && sharedClips.idle && !isDead) {
         const velSq = pBefore && pAfter ?
           (Math.pow(pAfter.x - pBefore.x, 2) + Math.pow(pAfter.z - pBefore.z, 2)) : 0
         const isMoving = velSq > 0.0001
         updateMixerState(mixer, isMoving)
+      } else if (mixer && isDead) {
+        mixer.stopAllAction()
       }
     })
 
