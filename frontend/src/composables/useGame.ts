@@ -66,15 +66,113 @@ export function useGame(canvas: HTMLCanvasElement) {
   const roundTimeLeft = ref(0)
   const destructibleMeshes = new Map<string, THREE.Group>()
 
+
   // ─── Three.js core ────────────────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.25
 
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0x0a0c14)
   scene.fog = new THREE.FogExp2(0x0a0c14, 0.012)
+
+  // ─── Vibe Jam 2026 Portals ────────────────────────────────────────────────
+  const params = new URLSearchParams(window.location.search)
+  const isFromPortal = params.get('portal') === 'true'
+  const portalRef = params.get('ref') || ''
+  const portalGroup = new THREE.Group()
+  scene.add(portalGroup)
+
+  function createPortalVisual(color: number): THREE.Group {
+    const group = new THREE.Group()
+    
+    // Anillo exterior (emisión)
+    const ringGeo = new THREE.TorusGeometry(1.5, 0.1, 16, 32)
+    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 })
+    const ring = new THREE.Mesh(ringGeo, ringMat)
+    group.add(ring)
+
+    // Interior sutil (disco)
+    const discGeo = new THREE.CircleGeometry(1.4, 32)
+    const discMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+    const disc = new THREE.Mesh(discGeo, discMat)
+    group.add(disc)
+
+    // Partículas flotantes
+    for(let i=0; i<8; i++) {
+        const pGeo = new THREE.SphereGeometry(0.05, 4, 4)
+        const pMat = new THREE.MeshBasicMaterial({ color })
+        const p = new THREE.Mesh(pGeo, pMat)
+        p.position.set((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*0.5)
+        p.userData.speed = 0.5 + Math.random()
+        group.add(p)
+    }
+
+    return group
+  }
+
+  let startPortal: THREE.Group | null = null
+  let exitPortal: THREE.Group | null = null
+
+  function setupPortals() {
+    portalGroup.clear()
+    
+    // Portal de SALIDA (Pared Derecha) - Lo movemos un poco más adentro (3m)
+    exitPortal = createPortalVisual(0xff33aa)
+    exitPortal.position.set(WORLD_SIZE_W / 2 - 3, 2.2, 0)
+    exitPortal.rotation.y = -Math.PI / 2
+    portalGroup.add(exitPortal)
+
+    // Portal de INICIO / RETORNO (Pared Izquierda)
+    if (isFromPortal && portalRef) {
+        startPortal = createPortalVisual(0x33aaff)
+        startPortal.position.set(-WORLD_SIZE_W / 2 + 3, 2.2, 0)
+        startPortal.rotation.y = Math.PI / 2
+        portalGroup.add(startPortal)
+    }
+  }
+
+  function checkPortalCollisions() {
+    const playerPos2D = new THREE.Vector2(localX, localZ)
+    
+    // Check Exit Portal
+    if (exitPortal) {
+        const portalPos2D = new THREE.Vector2(exitPortal.position.x, exitPortal.position.z)
+        if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
+            console.log("🚀 Entrando al Portal de Vibe Jam...")
+            const url = new URL('https://jam.pieter.com/portal/2026')
+            const snap = localSnapshot.value
+            const p = snap?.players.find(rp => rp.id === localId.value)
+            
+            url.searchParams.set('username', 'Player')
+            url.searchParams.set('color', localPlayerTeam.value === 'BARBARIAN' ? 'red' : 'blue')
+            url.searchParams.set('speed', '6')
+            url.searchParams.set('ref', window.location.origin)
+            if (p) {
+                url.searchParams.set('hp', p.health.toString())
+            }
+            
+            window.location.href = url.toString()
+        }
+    }
+
+    // Check Start Portal (to go back)
+    if (startPortal && portalRef) {
+        const portalPos2D = new THREE.Vector2(startPortal.position.x, startPortal.position.z)
+        if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
+            console.log("🔙 Volviendo al juego anterior...")
+            const target = portalRef.startsWith('http') ? portalRef : `https://${portalRef}`
+            const url = new URL(target)
+            params.forEach((val, key) => {
+                if (key !== 'portal' && key !== 'ref') url.searchParams.set(key, val)
+            })
+            window.location.href = url.toString()
+        }
+    }
+  }
 
   const sky = new Sky()
   sky.scale.setScalar(450000)
@@ -88,12 +186,15 @@ export function useGame(canvas: HTMLCanvasElement) {
     uniforms['mieCoefficient'].value = 0.005;
     uniforms['mieDirectionalG'].value = 0.7;
 
-    const phi = THREE.MathUtils.degToRad(90 - 4); // Altura del sol (atardecer)
-    const theta = THREE.MathUtils.degToRad(180);
+    const phi = THREE.MathUtils.degToRad(90 - 15); // Un poco más alto que el atardecer (15 grados) para mejor luz
+    const theta = THREE.MathUtils.degToRad(90); // Luz lateral (desde un costado del coliseo)
     sunPosition.setFromSphericalCoords(1, phi, theta);
     uniforms['sunPosition'].value.copy(sunPosition);
+
+    if (sun) {
+      sun.position.copy(sunPosition).multiplyScalar(100)
+    }
   }
-  updateSky()
 
   const camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
   const cameraThird = new THREE.PerspectiveCamera(62, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
@@ -105,11 +206,11 @@ export function useGame(canvas: HTMLCanvasElement) {
   const _mSwordLocal = new THREE.Matrix4()
 
   // ─── Iluminación ─────────────────────────────────────────────────────────
-  const ambient = new THREE.AmbientLight(0xfff3e0, 0.65)
+  const ambient = new THREE.AmbientLight(0xfff3e0, 1.2)
   scene.add(ambient)
 
-  const sun = new THREE.DirectionalLight(0xffddaa, 2.5)
-  sun.position.set(40, 50, 20)
+  const sun = new THREE.DirectionalLight(0xffddaa, 3.5)
+  sun.position.set(60, 100, 40)
   sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
   sun.shadow.camera.near = 0.5
@@ -122,7 +223,9 @@ export function useGame(canvas: HTMLCanvasElement) {
   sun.shadow.bias = -0.0005
   scene.add(sun)
 
-  const skyFill = new THREE.HemisphereLight(0x6688cc, 0x443300, 1.2)
+  updateSky()
+
+  const skyFill = new THREE.HemisphereLight(0x6688cc, 0x443300, 1.8)
   scene.add(skyFill)
 
   // ─── Terreno ──────────────────────────────────────────────────────────────
@@ -130,17 +233,27 @@ export function useGame(canvas: HTMLCanvasElement) {
   const groundTex = texLoader.load('/textures/ground.png')
   groundTex.wrapS = THREE.RepeatWrapping
   groundTex.wrapT = THREE.RepeatWrapping
-  groundTex.repeat.set(24, 24)
+  groundTex.repeat.set(WORLD_SIZE_W / 8, WORLD_SIZE_D / 8)
+  groundTex.anisotropy = renderer.capabilities.getMaxAnisotropy()
   groundTex.colorSpace = THREE.SRGBColorSpace
 
   const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE_W * 2, WORLD_SIZE_D * 2)
   const groundMat = new THREE.MeshStandardMaterial({
     map: groundTex,
-    roughness: 1,
+    roughness: 0.9,
     metalness: 0,
-    color: 0x555555
+    color: 0xffffff
   })
   const ground = new THREE.Mesh(groundGeo, groundMat)
+
+  // ─── Texturas de Estructuras ─────────────────────────────────────────────
+  const castleTex = texLoader.load('/textures/stone_bricks.png')
+  castleTex.wrapS = castleTex.wrapT = THREE.RepeatWrapping
+  castleTex.colorSpace = THREE.SRGBColorSpace
+
+  const wallTex = texLoader.load('/textures/wall_stone.png')
+  wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping
+  wallTex.colorSpace = THREE.SRGBColorSpace
   ground.rotation.x = -Math.PI / 2
   ground.receiveShadow = true
   scene.add(ground)
@@ -177,11 +290,12 @@ export function useGame(canvas: HTMLCanvasElement) {
     // Reconstruir terreno
     ground.geometry.dispose()
     ground.geometry = new THREE.PlaneGeometry(w, d)
-    ground.material.map!.repeat.set(w / 4, d / 4)
+    ground.material.map!.repeat.set(w / 8, d / 8)
 
     // Reconstruir arena
     scene.children.filter(c => c.userData.isWall).forEach(c => scene.remove(c))
     buildArena()
+    setupPortals()
     refreshCharacterMeshes()
   }
 
@@ -776,21 +890,30 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   function buildArena() {
     // Arena dinámica basada en WORLD_SIZE_W y WORLD_SIZE_D
-    scene.children.filter(c => c.userData.isWall).forEach(c => scene.add(c)) // Clean old walls if any? Actually buildArena is only called once.
+    scene.children.filter(c => c.userData.isWall).forEach(c => scene.remove(c))
 
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2d1b0a, roughness: 1 })
     const hW = WORLD_SIZE_W / 2
     const hD = WORLD_SIZE_D / 2
 
     const wallConfigs = [
-      { x: 0, z: -hD, rx: 0, w: WORLD_SIZE_W, h: 8 },
-      { x: hW, z: 0, rx: Math.PI / 2, w: WORLD_SIZE_D, h: 8 },
-      { x: 0, z: hD, rx: Math.PI, w: WORLD_SIZE_W, h: 8 },
-      { x: -hW, z: 0, rx: -Math.PI / 2, w: WORLD_SIZE_D, h: 8 },
+      { x: 0, z: -hD, rx: 0, w: WORLD_SIZE_W, h: 10 },
+      { x: hW, z: 0, rx: Math.PI / 2, w: WORLD_SIZE_D, h: 10 },
+      { x: 0, z: hD, rx: Math.PI, w: WORLD_SIZE_W, h: 10 },
+      { x: -hW, z: 0, rx: -Math.PI / 2, w: WORLD_SIZE_D, h: 10 },
     ]
     wallConfigs.forEach(({ x, z, rx, w, h }) => {
       const geo = new THREE.BoxGeometry(w, h, 2)
-      const mesh = new THREE.Mesh(geo, wallMat)
+      const t = wallTex.clone()
+      t.repeat.set(w / 4, h / 4)
+      t.needsUpdate = true
+
+      const mat = new THREE.MeshStandardMaterial({
+        map: t,
+        color: 0x888888,
+        roughness: 0.8,
+        metalness: 0.2
+      })
+      const mesh = new THREE.Mesh(geo, mat)
       mesh.position.set(x, h / 2 - 0.2, z)
       mesh.rotation.y = rx
       mesh.castShadow = true
@@ -856,11 +979,16 @@ export function useGame(canvas: HTMLCanvasElement) {
   function buildDestructibleModel(obj: any): THREE.Group {
     const group = new THREE.Group()
     const isCastle = obj.type === 'CASTLE'
-    const color = isCastle ? 0x666666 : 0x554433
+
+    const tex = isCastle ? castleTex.clone() : wallTex.clone()
+    tex.repeat.set(obj.width / 3, isCastle ? 4 : 2)
+    tex.needsUpdate = true
+
     const mat = new THREE.MeshStandardMaterial({
-      color: color,
-      metalness: 0.1,
-      roughness: 0.8
+      map: tex,
+      color: isCastle ? 0xffffff : 0xaaaaaa,
+      metalness: 0.2,
+      roughness: 0.7
     })
 
     if (isCastle) {
@@ -910,10 +1038,10 @@ export function useGame(canvas: HTMLCanvasElement) {
       group.add(wall)
 
       // Wall teeth
-      const toothGeo = new THREE.BoxGeometry(1, 1, 0.8)
-      for (let x = -obj.width / 2; x <= obj.width / 2; x += 2) {
+      const toothGeo = new THREE.BoxGeometry(1.2, 1.2, obj.depth + 0.2)
+      for (let x = -obj.width / 2; x <= obj.width / 2; x += 2.2) {
         const tooth = new THREE.Mesh(toothGeo, mat.clone())
-        tooth.position.set(x, 6.5, 0)
+        tooth.position.set(x, 6.2, 0)
         group.add(tooth)
       }
     }
@@ -1113,7 +1241,8 @@ export function useGame(canvas: HTMLCanvasElement) {
         m.traverse(child => {
           if (child instanceof THREE.Mesh && child.name !== 'hpFill' && child.name !== 'hpBg') {
             if (child.material instanceof THREE.MeshStandardMaterial) {
-              child.material.color.setHex(obj.type === 'CASTLE' ? 0x666666 : 0x554433).multiplyScalar(0.4 + 0.6 * hpPct)
+              const baseColor = obj.type === 'CASTLE' ? 0xffffff : 0xaaaaaa
+              child.material.color.setHex(baseColor).multiplyScalar(0.4 + 0.6 * hpPct)
             }
           }
         })
@@ -1355,6 +1484,15 @@ export function useGame(canvas: HTMLCanvasElement) {
       updateLocalPlayerAvatar();
       updateThirdPersonCamera();
       updateHitBursts(dt);
+      checkPortalCollisions();
+      
+      // Animar portales (giro suave)
+      portalGroup.children.forEach(p => {
+        p.rotation.y += dt
+        p.children.forEach(child => {
+            if (child.userData.speed) child.position.y += Math.sin(performance.now() * 0.005 * child.userData.speed) * 0.005
+        })
+      })
 
       // Animación de cuerpo (Locomoción Local)
       const locId = localIdForModels();

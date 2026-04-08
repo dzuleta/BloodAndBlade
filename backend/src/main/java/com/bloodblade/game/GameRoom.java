@@ -332,9 +332,8 @@ public class GameRoom {
     }
 
     private int calculateDamage(Player attacker, HitResult hr) {
-        float staminaMult = (attacker.stamina >= cfg.staminaFullDamageThreshold) ? 1.0f : 0.5f;
-        int raw = (int) (cfg.baseDamage * staminaMult);
-        return Math.round(raw * hr.zone().damageMultiplier);
+        // Reducido a 20% (flat 20 hp) por golpe según petición del usuario
+        return 20;
     }
 
     // ─── Snapshot y broadcast ─────────────────────────────────────────────
