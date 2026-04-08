@@ -1,12 +1,11 @@
 **/backend/node_modules/
 **/backend/bin
 **/backend/build*
-**/backend/gradle
 **/backend/node_modules/
 **/backend/src/main/resources/application.properties
-**/gradle*
+**/backend/.gradle/
+backend/gradlew.bat
 **workspace*
-**gradle*
 **/.DS_Store
 **/node_modules/
 **/dist/
