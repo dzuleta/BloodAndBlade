@@ -1,8 +1,10 @@
 import { ref, shallowRef, onUnmounted } from 'vue'
 import * as THREE from 'three'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
-import { Sky } from 'three/addons/objects/Sky.js'
+import { useMap } from './useMap'
+import { useEffects } from './useEffects'
 import type { WorldSnapshot, RemotePlayer } from '../types/protocol'
 
 const PLAYER_HEIGHT = 1.8
@@ -20,11 +22,11 @@ const KAYKIT_BODY_YAW_OFFSET = Math.PI
  */
 const KAYKIT_SWORD_BLADE_ALIGN = new THREE.Euler(0, 0, 0)
 
-type KayKitTemplates = {
-  barbarian: THREE.Object3D
-  knight: THREE.Object3D
-  swordBarbarian: THREE.Object3D
-  swordKnight: THREE.Object3D
+type CharacterTemplates = {
+  paladin: THREE.Object3D
+  guard: THREE.Object3D
+  swordPaladin: THREE.Object3D
+  swordGuard: THREE.Object3D
 }
 
 type SharedClips = {
@@ -64,7 +66,6 @@ export function useGame(canvas: HTMLCanvasElement) {
   const localId = ref('')
   const localPlayerTeam = ref('')
   const roundTimeLeft = ref(0)
-  const destructibleMeshes = new Map<string, THREE.Group>()
 
 
   // ─── Three.js core ────────────────────────────────────────────────────────
@@ -74,73 +75,26 @@ export function useGame(canvas: HTMLCanvasElement) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.25
+  renderer.outputColorSpace = THREE.SRGBColorSpace
 
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0x0a0c14)
   scene.fog = new THREE.FogExp2(0x0a0c14, 0.012)
 
-  // ─── Vibe Jam 2026 Portals ────────────────────────────────────────────────
+  // ─── Map and Effects ──────────────────────────────────────────────────
+  const mapControl = useMap(scene, renderer)
+  const effects = useEffects(scene)
+
   const params = new URLSearchParams(window.location.search)
   const isFromPortal = params.get('portal') === 'true'
   const portalRef = params.get('ref') || ''
-  const portalGroup = new THREE.Group()
-  scene.add(portalGroup)
-
-  function createPortalVisual(color: number): THREE.Group {
-    const group = new THREE.Group()
-
-    // Anillo exterior (emisión)
-    const ringGeo = new THREE.TorusGeometry(1.5, 0.1, 16, 32)
-    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 })
-    const ring = new THREE.Mesh(ringGeo, ringMat)
-    group.add(ring)
-
-    // Interior sutil (disco)
-    const discGeo = new THREE.CircleGeometry(1.4, 32)
-    const discMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
-    const disc = new THREE.Mesh(discGeo, discMat)
-    group.add(disc)
-
-    // Partículas flotantes
-    for (let i = 0; i < 8; i++) {
-      const pGeo = new THREE.SphereGeometry(0.05, 4, 4)
-      const pMat = new THREE.MeshBasicMaterial({ color })
-      const p = new THREE.Mesh(pGeo, pMat)
-      p.position.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.5)
-      p.userData.speed = 0.5 + Math.random()
-      group.add(p)
-    }
-
-    return group
-  }
-
-  let startPortal: THREE.Group | null = null
-  let exitPortal: THREE.Group | null = null
-
-  function setupPortals() {
-    portalGroup.clear()
-
-    // Portal de SALIDA (Pared Derecha) - Lo movemos un poco más adentro (3m)
-    exitPortal = createPortalVisual(0xff33aa)
-    exitPortal.position.set(WORLD_SIZE_W / 2 - 3, 2.2, 0)
-    exitPortal.rotation.y = -Math.PI / 2
-    portalGroup.add(exitPortal)
-
-    // Portal de INICIO / RETORNO (Pared Izquierda)
-    if (isFromPortal && portalRef) {
-      startPortal = createPortalVisual(0x33aaff)
-      startPortal.position.set(-WORLD_SIZE_W / 2 + 3, 2.2, 0)
-      startPortal.rotation.y = Math.PI / 2
-      portalGroup.add(startPortal)
-    }
-  }
 
   function checkPortalCollisions() {
     const playerPos2D = new THREE.Vector2(localX, localZ)
 
     // Check Exit Portal
-    if (exitPortal) {
-      const portalPos2D = new THREE.Vector2(exitPortal.position.x, exitPortal.position.z)
+    if (mapControl.exitPortal) {
+      const portalPos2D = new THREE.Vector2(mapControl.exitPortal.position.x, mapControl.exitPortal.position.z)
       if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
         console.log("🚀 Entrando al Portal de Vibe Jam...")
         const url = new URL('https://jam.pieter.com/portal/2026')
@@ -160,8 +114,8 @@ export function useGame(canvas: HTMLCanvasElement) {
     }
 
     // Check Start Portal (to go back)
-    if (startPortal && portalRef) {
-      const portalPos2D = new THREE.Vector2(startPortal.position.x, startPortal.position.z)
+    if (mapControl.startPortal && portalRef) {
+      const portalPos2D = new THREE.Vector2(mapControl.startPortal.position.x, mapControl.startPortal.position.z)
       if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
         console.log("🔙 Volviendo al juego anterior...")
         const target = portalRef.startsWith('http') ? portalRef : `https://${portalRef}`
@@ -174,27 +128,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     }
   }
 
-  const sky = new Sky()
-  sky.scale.setScalar(450000)
-  scene.add(sky)
+  mapControl.updateSky()
 
-  const sunPosition = new THREE.Vector3()
-  function updateSky() {
-    const uniforms = sky.material.uniforms;
-    uniforms['turbidity'].value = 10;
-    uniforms['rayleigh'].value = 3;
-    uniforms['mieCoefficient'].value = 0.005;
-    uniforms['mieDirectionalG'].value = 0.7;
-
-    const phi = THREE.MathUtils.degToRad(5); // Luz cenital (directamente desde arriba) para máxima claridad
-    const theta = THREE.MathUtils.degToRad(0);
-    sunPosition.setFromSphericalCoords(1, phi, theta);
-    uniforms['sunPosition'].value.copy(sunPosition);
-
-    if (sun) {
-      sun.position.copy(sunPosition).multiplyScalar(100)
-    }
-  }
+  // ─── Camera ─────────────────────────────────────────────────────────────
 
   const camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
   const cameraThird = new THREE.PerspectiveCamera(62, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
@@ -205,65 +141,13 @@ export function useGame(canvas: HTMLCanvasElement) {
   const _mInvAvatar = new THREE.Matrix4()
   const _mSwordLocal = new THREE.Matrix4()
 
-  // ─── Iluminación ─────────────────────────────────────────────────────────
   const ambient = new THREE.AmbientLight(0xfff3e0, 1.2)
   scene.add(ambient)
-
-  const sun = new THREE.DirectionalLight(0xffddaa, 3.5)
-  sun.position.set(60, 100, 40)
-  sun.castShadow = true
-  sun.shadow.mapSize.set(2048, 2048)
-  sun.shadow.camera.near = 0.5
-  sun.shadow.camera.far = 250
-  sun.shadow.camera.left = -60
-  sun.shadow.camera.right = 60
-  sun.shadow.camera.top = 60
-  sun.shadow.camera.bottom = -60
-  sun.shadow.normalBias = 0.08
-  sun.shadow.bias = -0.0005
-  scene.add(sun)
-
-  updateSky()
 
   const skyFill = new THREE.HemisphereLight(0x6688cc, 0x443300, 1.8)
   scene.add(skyFill)
 
-  // ─── Terreno ──────────────────────────────────────────────────────────────
-  const texLoader = new THREE.TextureLoader()
-  const groundTex = texLoader.load('/textures/ground.png')
-  groundTex.wrapS = THREE.RepeatWrapping
-  groundTex.wrapT = THREE.RepeatWrapping
-  groundTex.repeat.set(WORLD_SIZE_W / 8, WORLD_SIZE_D / 8)
-  groundTex.anisotropy = renderer.capabilities.getMaxAnisotropy()
-  groundTex.colorSpace = THREE.SRGBColorSpace
-
-  const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE_W * 2, WORLD_SIZE_D * 2)
-  const groundMat = new THREE.MeshStandardMaterial({
-    map: groundTex,
-    roughness: 0.9,
-    metalness: 0,
-    color: 0xffffff
-  })
-  const ground = new THREE.Mesh(groundGeo, groundMat)
-
-  // ─── Texturas de Estructuras ─────────────────────────────────────────────
-  const castleTex = texLoader.load('/textures/stone_bricks.png')
-  castleTex.wrapS = castleTex.wrapT = THREE.RepeatWrapping
-  castleTex.colorSpace = THREE.SRGBColorSpace
-
-  const wallTex = texLoader.load('/textures/wall_stone.png')
-  wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping
-  wallTex.colorSpace = THREE.SRGBColorSpace
-
-  const barkTex = texLoader.load('/textures/bark.png')
-  barkTex.wrapS = barkTex.wrapT = THREE.RepeatWrapping
-  barkTex.colorSpace = THREE.SRGBColorSpace
-  ground.rotation.x = -Math.PI / 2
-  ground.receiveShadow = true
-  scene.add(ground)
-
-  // Bordes de nivel y árboles
-  buildArena()
+  mapControl.buildArena(WORLD_SIZE_W, WORLD_SIZE_D)
 
   // ─── Espada en primera persona (arma del jugador local) ───────────────────
   // Pivote a altura de ojos con solo yaw: la espada no hereda el pitch del ratón; solo anima hacia targets al atacar/bloquear.
@@ -276,9 +160,14 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   // ─── Mesh pool para jugadores remotos ────────────────────────────────────
   const remoteMeshes = new Map<string, THREE.Group>()
-  /** Plantillas FBX KayKit (null hasta que cargue loadKayKitAssets) */
-  let kayKitTemplates: KayKitTemplates | null = null
-  const sharedClips: SharedClips = { idle: null, walk: null, run: null }
+  type SharedClips = {
+    idle: THREE.AnimationClip | null
+    walk: THREE.AnimationClip | null
+    run: THREE.AnimationClip | null
+  }
+  const guardClips: SharedClips = { idle: null, walk: null, run: null }
+  const paladinClips: SharedClips = { idle: null, walk: null, run: null }
+  let characterTemplates: CharacterTemplates | null = null
   const mixers = new Map<string, THREE.AnimationMixer>()
 
   // ─── Estado de interpolación ─────────────────────────────────────────────
@@ -292,14 +181,13 @@ export function useGame(canvas: HTMLCanvasElement) {
     WORLD_SIZE_D = d
 
     // Reconstruir terreno
-    ground.geometry.dispose()
-    ground.geometry = new THREE.PlaneGeometry(w, d)
-    ground.material.map!.repeat.set(w / 8, d / 8)
+    mapControl.ground.geometry.dispose()
+    mapControl.ground.geometry = new THREE.PlaneGeometry(w, d)
+    mapControl.groundTex.repeat.set(w / 8, d / 8)
 
     // Reconstruir arena
-    scene.children.filter(c => c.userData.isWall).forEach(c => scene.remove(c))
-    buildArena()
-    setupPortals()
+    mapControl.buildArena(w, d)
+    mapControl.setupPortals(w, isFromPortal, portalRef)
     refreshCharacterMeshes()
   }
 
@@ -332,7 +220,7 @@ export function useGame(canvas: HTMLCanvasElement) {
   // x, z, y: xRight, zUpAsY, yDepthAsZ : (0, 0, 0) es el pivote (ojos, sin pitch). Hoja del mesh en +Y local del grupo.
   // x: +es hacia la derecha, - es hacia la izquierda
   // z: +es hacia arriba, - es hacia abajo
-  // y: -es hacia la derecha, + es hacia la izquierda
+  // y: +es hacia la derecha, - es hacia la izquierda
   const SWING_WINDUP_DIRS = {
     UP: {
       pos: fpSwordPos(0.48, 0.58, -0.76),
@@ -462,17 +350,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     return group
   }
 
-  function playerVariant(playerId: string): 'barbarian' | 'knight' {
-    if (playerId === '__preview__') return (localPlayerTeam.value === 'BARBARIAN' ? 'barbarian' : 'knight')
-    if (localId.value.length > 0 && playerId === localId.value) return (localPlayerTeam.value === 'BARBARIAN' ? 'barbarian' : 'knight')
-
-    // Si es un remoto, intentar obtener su equipo del último snapshot
-    const snap = localSnapshot.value
-    if (snap) {
-      const p = snap.players.find(rp => rp.id === playerId)
-      if (p && p.team) return (p.team === 'BARBARIAN' ? 'barbarian' : 'knight')
-    }
-    return 'barbarian'
+  function playerVariant(pid: string): 'guard' | 'paladin' {
+    const id = parseInt(pid.split('-')[1]) || 0
+    return id % 2 === 0 ? 'guard' : 'paladin'
   }
 
   function applyPaletteTexture(root: THREE.Object3D, map: THREE.Texture) {
@@ -545,22 +425,23 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   function applyCharacterBody(body: THREE.Group, playerId: string, proceduralTint: number) {
     body.clear()
-    if (!kayKitTemplates) {
+    if (!characterTemplates) {
       fillProceduralBody(body, proceduralTint)
       return
     }
     const v = playerVariant(playerId)
-    const tpl = v === 'knight' ? kayKitTemplates.knight : kayKitTemplates.barbarian
+    const tpl = v === 'guard' ? characterTemplates.guard : characterTemplates.paladin
     const c = cloneSkinned(tpl)
     c.rotateY(KAYKIT_BODY_YAW_OFFSET)
     body.add(c)
 
     // Configurar Animación
-    if (sharedClips.idle) {
+    const clips = v === 'guard' ? guardClips : paladinClips
+    if (clips.idle) {
       const mixer = new THREE.AnimationMixer(c)
-      const action = mixer.clipAction(sharedClips.idle)
+      const action = mixer.clipAction(clips.idle)
       action.play()
-      mixers.set(playerId === '__preview__' ? localIdForModels() : playerId, mixer)
+      mixers.set(playerId, mixer)
     }
   }
 
@@ -600,57 +481,93 @@ export function useGame(canvas: HTMLCanvasElement) {
   localPlayerAvatar.visible = false
   scene.add(localPlayerAvatar)
 
-  async function loadKayKitAssets(): Promise<void> {
+  async function loadCharacterAssets(): Promise<void> {
     const texLoader = new THREE.TextureLoader()
     const fbx = new FBXLoader()
+    const gltfLoader = new GLTFLoader()
     const url = (f: string) => `${KAYKIT_BASE}${f}`
-    const [barTex, knightTex, barFbx, knightFbx, swordRaw] = await Promise.all([
-      texLoader.loadAsync(url('barbarian_texture.png')),
-      texLoader.loadAsync(url('knight_texture.png')),
-      fbx.loadAsync(url('Barbarian.fbx')),
-      fbx.loadAsync(url('Knight.fbx')),
-      fbx.loadAsync(url('sword_2handed.fbx')),
+
+    const [guardGltf, paladinGltf] = await Promise.all([
+      gltfLoader.loadAsync('/models/blender/guard1.glb'),
+      gltfLoader.loadAsync('/models/blender/paladin.glb')
     ])
-    for (const t of [barTex, knightTex]) {
-      t.colorSpace = THREE.SRGBColorSpace
-      t.magFilter = THREE.NearestFilter
-      t.minFilter = THREE.NearestFilter
+
+    const guardMesh = guardGltf.scene
+    const paladinMesh = paladinGltf.scene
+
+    // Configurar color de texturas para GLB (evitar que se vean oscuros o sin textura)
+    const setupGLB = (scene: THREE.Object3D) => {
+      scene.traverse((node: any) => {
+        if (node.isMesh) {
+          if (node.material) {
+            // Asegurar que las texturas usen el espacio de color correcto
+            if (node.material.map) {
+              node.material.map.colorSpace = THREE.SRGBColorSpace
+              node.material.map.needsUpdate = true
+            }
+
+            // Los modelos de Blender suelen venir con metalness al máximo
+            // Sin un Environment Map, esto se ve negro.
+            if (node.material.isMeshStandardMaterial || node.material.isMeshPhysicalMaterial) {
+              if (node.material.metalness > 0) {
+                node.material.metalness = 0.2 // Reducir metalness para visibilidad básica
+              }
+              node.material.roughness = Math.max(node.material.roughness, 0.4)
+            }
+
+            // Forzar que los materiales sean opacos si no tienen mapa de opacidad
+            node.material.transparent = false
+            node.material.alphaTest = 0.5
+            node.material.depthWrite = true
+          }
+        }
+      })
     }
-    applyPaletteTexture(barFbx, barTex)
-    applyPaletteTexture(knightFbx, knightTex)
-    enableShadows(barFbx)
-    enableShadows(knightFbx)
-    normalizeCharacterHeight(barFbx, PLAYER_HEIGHT)
-    normalizeCharacterHeight(knightFbx, PLAYER_HEIGHT)
+    setupGLB(guardMesh)
+    setupGLB(paladinMesh)
 
-    const swordBar = cloneSkinned(swordRaw)
-    const swordKnight = cloneSkinned(swordRaw)
-    applyPaletteTexture(swordBar, barTex)
-    applyPaletteTexture(swordKnight, knightTex)
-    enableShadows(swordBar)
-    enableShadows(swordKnight)
-    normalizeSwordModel(swordBar, 1.28)
-    normalizeSwordModel(swordKnight, 1.28)
+    // --- ANIMACIONES (Mixamo Rig) ---
+    const cleanClips = (gltfClips: THREE.AnimationClip[], target: SharedClips) => {
+      const findClip = (namePart: string) => {
+        const search = [namePart.toLowerCase()];
+        if (namePart === 'walk') search.push('walk', 'camina', 'step', 'march');
+        if (namePart === 'run') search.push('run', 'corre', 'sprint');
+        return gltfClips.find(a => search.some(s => a.name.toLowerCase().includes(s))) || gltfClips[0] || null;
+      }
 
-    kayKitTemplates = {
-      barbarian: barFbx,
-      knight: knightFbx,
-      swordBarbarian: swordBar,
-      swordKnight: swordKnight
+      target.idle = findClip('idle')
+      target.walk = findClip('walk')
+      target.run = findClip('run')
+
+      // Limpieza de tracks Mixamo para evitar T-Pose
+      Object.values(target).forEach(clip => {
+        if (!clip) return
+        clip.tracks.forEach(track => {
+          if (track.name.includes('mixamorig')) {
+            const parts = track.name.split('mixamorig')
+            track.name = 'mixamorig' + parts[parts.length - 1]
+          }
+        })
+      })
+    }
+
+    cleanClips(guardGltf.animations, guardClips)
+    cleanClips(paladinGltf.animations, paladinClips)
+
+    const paladinMeshFinal = paladinMesh
+    const guardMeshFinal = guardMesh
+
+    enableShadows(paladinMeshFinal)
+    normalizeCharacterHeight(paladinMeshFinal, PLAYER_HEIGHT)
+    enableShadows(guardMeshFinal)
+    normalizeCharacterHeight(guardMeshFinal, PLAYER_HEIGHT)
+
+    characterTemplates = {
+      paladin: paladinMeshFinal,
+      guard: guardMeshFinal,
+      swordPaladin: new THREE.Group(),
+      swordGuard: new THREE.Group()
     };
-
-    // --- CARGAR ANIMACIONES ---
-    const [genRig, movRig] = await Promise.all([
-      fbx.loadAsync(url('Rig_Medium_General.fbx')),
-      fbx.loadAsync(url('Rig_Medium_MovementBasic.fbx')),
-    ])
-
-    const findClip = (fbx: THREE.Group, namePart: string) =>
-      fbx.animations.find(a => a.name.toLowerCase().includes(namePart.toLowerCase()))
-
-    sharedClips.idle = findClip(genRig, 'Idle') || genRig.animations[0]
-    sharedClips.walk = findClip(movRig, 'Walk') || movRig.animations[0]
-    sharedClips.run = findClip(movRig, 'Run') || movRig.animations[0]
 
     refreshCharacterMeshes()
   }
@@ -681,264 +598,12 @@ export function useGame(canvas: HTMLCanvasElement) {
     })
   }
 
-  // ─── Impacto: sangre (partículas) + sonido ───────────────────────────────
-  let hitAudioCtx: AudioContext | null = null
-  const hitBursts: { g: THREE.Group; t: number }[] = []
-
-  function playHitImpactSound(pos?: THREE.Vector3) {
-    try {
-      if (!hitAudioCtx) {
-        const AC = window.AudioContext || (window as any).webkitAudioContext
-        if (AC) hitAudioCtx = new AC()
-        else return
-      }
-      const ctx = hitAudioCtx!
-      if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => { })
-      }
-
-      // --- Audio de proximidad ---
-      let volume = 0.55
-      if (pos) {
-        const lPos = new THREE.Vector3(localX, localY, localZ)
-        const dist = pos.distanceTo(lPos)
-        if (dist > 35) return // No reproducir lejos
-        volume = Math.max(0, 0.6 * (1 - dist / 35))
-        if (volume < 0.01) return
-      }
-
-      const t0 = ctx.currentTime
-      const nSamples = Math.floor(ctx.sampleRate * 0.1)
-      const buf = ctx.createBuffer(1, nSamples, ctx.sampleRate)
-      const data = buf.getChannelData(0)
-      for (let i = 0; i < nSamples; i++) {
-        const env = Math.exp(-i / (nSamples * 0.22))
-        data[i] = (Math.random() * 2 - 1) * env * 0.45
-      }
-      const noise = ctx.createBufferSource()
-      noise.buffer = buf
-      const f = ctx.createBiquadFilter()
-      f.type = 'lowpass'
-      f.frequency.value = 700
-      const gn = ctx.createGain()
-      gn.gain.value = volume
-      noise.connect(f)
-      f.connect(gn)
-      gn.connect(ctx.destination)
-      noise.start(t0)
-      noise.stop(t0 + 0.1)
-      const osc = ctx.createOscillator()
-      const g2 = ctx.createGain()
-      osc.type = 'square'
-      osc.frequency.setValueAtTime(220, t0)
-      osc.frequency.exponentialRampToValueAtTime(90, t0 + 0.07)
-      g2.gain.setValueAtTime(0.06 * (volume / 0.55), t0)
-      g2.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.09)
-      osc.connect(g2)
-      g2.connect(ctx.destination)
-      osc.start(t0)
-      osc.stop(t0 + 0.1)
-    } catch {
-      /* sin audio */
-    }
-  }
-
-  function spawnHitBlood(x: number, y: number, z: number) {
-    const group = new THREE.Group()
-    group.position.set(x, y, z)
-    for (let i = 0; i < 16; i++) {
-      const geo = new THREE.SphereGeometry(0.028 + Math.random() * 0.04, 6, 6)
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color().setHSL(0.02, 0.85, 0.35 + Math.random() * 0.15),
-        transparent: true,
-        opacity: 1,
-      })
-      const m = new THREE.Mesh(geo, mat)
-      m.userData.vx = (Math.random() - 0.5) * 2.5
-      m.userData.vy = Math.random() * 2 + 0.4
-      m.userData.vz = (Math.random() - 0.5) * 2.5
-      group.add(m)
-    }
-    scene.add(group)
-    hitBursts.push({ g: group, t: 0 })
-  }
-
-  function updateHitBursts(dt: number) {
-    for (let i = hitBursts.length - 1; i >= 0; i--) {
-      const b = hitBursts[i]
-      b.t += dt
-      for (const ch of b.g.children) {
-        const m = ch as THREE.Mesh
-        m.userData.vy -= 6 * dt
-        m.position.x += m.userData.vx * dt
-        m.position.y += m.userData.vy * dt
-        m.position.z += m.userData.vz * dt
-        const mat = m.material as THREE.MeshBasicMaterial
-        mat.opacity = Math.max(0, 1 - b.t / 0.55)
-      }
-      if (b.t > 0.55) {
-        scene.remove(b.g)
-        b.g.children.forEach((c) => {
-          const mesh = c as THREE.Mesh
-          mesh.geometry.dispose()
-            ; (mesh.material as THREE.Material).dispose()
-        })
-        hitBursts.splice(i, 1)
-      }
-    }
-  }
-
-  /** Partículas + sonido cuando un hit conecta (la espada sigue el RELEASE del servidor sin congelar en contacto) */
   function applyHitImpact(x: number, y: number, z: number) {
-    spawnHitBlood(x, y, z)
-    //playHitImpactSound()
-  }
-
-  function playClashSound() {
-    try {
-      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      if (!AC) return
-      if (!hitAudioCtx) hitAudioCtx = new AC()
-      const ctx = hitAudioCtx
-      if (ctx.state === 'suspended') void ctx.resume()
-      const t0 = ctx.currentTime
-
-      // Metallic "ting"
-      const osc = ctx.createOscillator()
-      const gn = ctx.createGain()
-      osc.type = 'triangle'
-      osc.frequency.setValueAtTime(1200, t0)
-      osc.frequency.exponentialRampToValueAtTime(400, t0 + 0.1)
-      gn.gain.setValueAtTime(0.3, t0)
-      gn.gain.exponentialRampToValueAtTime(0.001, t0 + 0.15)
-      osc.connect(gn)
-      gn.connect(ctx.destination)
-      osc.start(t0)
-      osc.stop(t0 + 0.15)
-
-      // Noise burst for impact
-      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.05), ctx.sampleRate)
-      const data = buf.getChannelData(0)
-      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.2))
-      const noise = ctx.createBufferSource()
-      noise.buffer = buf
-      const gn2 = ctx.createGain()
-      gn2.gain.value = 0.2
-      noise.connect(gn2)
-      gn2.connect(ctx.destination)
-      noise.start(t0)
-    } catch { /* sin audio */ }
-  }
-
-  function spawnClashSparks(x: number, y: number, z: number) {
-    const group = new THREE.Group()
-    group.position.set(x, y, z)
-    for (let i = 0; i < 12; i++) {
-      const geo = new THREE.BoxGeometry(0.02, 0.02, 0.02)
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 1 })
-      const m = new THREE.Mesh(geo, mat)
-      m.userData.vx = (Math.random() - 0.5) * 4
-      m.userData.vy = (Math.random() - 0.5) * 4
-      m.userData.vz = (Math.random() - 0.5) * 4
-      group.add(m)
-    }
-    scene.add(group)
-    hitBursts.push({ g: group, t: 0 })
+    effects.applyHitImpact(x, y, z)
   }
 
   function applyClashImpact(x: number, y: number, z: number) {
-    spawnClashSparks(x, y, z)
-    //playClashSound()
-  }
-
-  function buildTree(x: number, z: number) {
-    const group = new THREE.Group()
-    group.position.set(x, 0, z)
-    group.scale.setScalar(0.7 + Math.random() * 0.4)
-    group.rotation.y = Math.random() * Math.PI * 2
-
-    const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3, 6)
-    const tBark = barkTex.clone()
-    tBark.repeat.set(2, 2)
-    const trunkMat = new THREE.MeshStandardMaterial({
-      map: tBark,
-      color: 0xffffff,
-      roughness: 0.9
-    })
-    const trunk = new THREE.Mesh(trunkGeo, trunkMat)
-    trunk.position.y = 1.5
-    trunk.castShadow = true
-    trunk.receiveShadow = true
-    group.add(trunk)
-
-    // Foliage texture
-    const fTex = texLoader.load('/textures/foliage.png')
-    fTex.colorSpace = THREE.SRGBColorSpace
-    const fMat = new THREE.MeshStandardMaterial({
-      map: fTex,
-      color: 0x1a4a1a,
-      roughness: 1,
-      transparent: true,
-      alphaTest: 0.5,
-      side: THREE.DoubleSide
-    })
-
-    // Follaje realista usando planos cruzados (técnica profesional de juegos)
-    const leafGeo = new THREE.PlaneGeometry(2.5, 2.5)
-    for (let i = 0; i < 12; i++) {
-      const m = new THREE.Mesh(leafGeo, fMat)
-      const h = 2.0 + Math.random() * 3.5
-      const r = 0.5 + Math.random() * 1.5
-      const angle = Math.random() * Math.PI * 2
-      m.position.set(Math.cos(angle) * r, h, Math.sin(angle) * r)
-      m.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0)
-      m.castShadow = true
-      m.receiveShadow = true
-      group.add(m)
-    }
-
-    scene.add(group)
-  }
-
-  function buildArena() {
-    // Arena dinámica basada en WORLD_SIZE_W y WORLD_SIZE_D
-    scene.children.filter(c => c.userData.isWall).forEach(c => scene.remove(c))
-
-    const hW = WORLD_SIZE_W / 2
-    const hD = WORLD_SIZE_D / 2
-
-    const wallConfigs = [
-      { x: 0, z: -hD, rx: 0, w: WORLD_SIZE_W, h: 10 },
-      { x: hW, z: 0, rx: Math.PI / 2, w: WORLD_SIZE_D, h: 10 },
-      { x: 0, z: hD, rx: Math.PI, w: WORLD_SIZE_W, h: 10 },
-      { x: -hW, z: 0, rx: -Math.PI / 2, w: WORLD_SIZE_D, h: 10 },
-    ]
-    wallConfigs.forEach(({ x, z, rx, w, h }) => {
-      const geo = new THREE.BoxGeometry(w, h, 2)
-      const t = wallTex.clone()
-      t.repeat.set(w / 4, h / 4)
-      t.needsUpdate = true
-
-      const mat = new THREE.MeshStandardMaterial({
-        map: t,
-        color: 0x888888,
-        roughness: 0.8,
-        metalness: 0.2
-      })
-      const mesh = new THREE.Mesh(geo, mat)
-      mesh.position.set(x, h / 2 - 0.2, z)
-      mesh.rotation.y = rx
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      mesh.userData.isWall = true
-      scene.add(mesh)
-    })
-
-    const treePositions = [
-      [12, 12], [-12, 12], [12, -12], [-12, -12],
-      [22, 0], [-22, 0], [0, 22], [0, -22],
-    ]
-    treePositions.forEach(([x, z]) => buildTree(x, z))
+    effects.applyClashImpact(x, y, z)
   }
 
   function getOrCreateRemoteMesh(id: string): THREE.Group {
@@ -958,7 +623,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     group.add(swordRemote)
 
     // Barra de vida flotante
-    const barGroup = buildHealthBar()
+    const barGroup = mapControl.buildHealthBar()
     barGroup.position.y = 2.1
     barGroup.name = 'healthBar'
     group.add(barGroup)
@@ -968,107 +633,6 @@ export function useGame(canvas: HTMLCanvasElement) {
     return group
   }
 
-  function buildHealthBar(): THREE.Group {
-    const g = new THREE.Group()
-    const bgGeo = new THREE.PlaneGeometry(1.0, 0.12)
-    const bgMat = new THREE.MeshBasicMaterial({ color: 0x330000, depthTest: false, transparent: true, opacity: 0.7 })
-    const bg = new THREE.Mesh(bgGeo, bgMat)
-    bg.name = 'hpBg'
-    bg.renderOrder = 999
-    g.add(bg)
-
-    const fgGeo = new THREE.PlaneGeometry(1.0, 0.1)
-    const fgMat = new THREE.MeshBasicMaterial({ color: 0xcc0000, depthTest: false })
-    const fg = new THREE.Mesh(fgGeo, fgMat)
-    fg.position.z = 0.001
-    fg.name = 'hpFill'
-    fg.renderOrder = 1000
-    g.add(fg)
-
-    return g
-  }
-
-  function buildDestructibleModel(obj: any): THREE.Group {
-    const group = new THREE.Group()
-    const isCastle = obj.type === 'CASTLE'
-
-    const tex = isCastle ? castleTex.clone() : wallTex.clone()
-    tex.repeat.set(obj.width / 3, isCastle ? 4 : 2)
-    tex.needsUpdate = true
-
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      color: isCastle ? 0xffffff : 0xaaaaaa,
-      metalness: 0.2,
-      roughness: 0.7
-    })
-
-    if (isCastle) {
-      // Main keep
-      const keepGeo = new THREE.BoxGeometry(obj.width, 14, obj.depth)
-      const keep = new THREE.Mesh(keepGeo, mat)
-      keep.position.y = 7
-      keep.castShadow = true
-      keep.receiveShadow = true
-      group.add(keep)
-
-      // Corner Towers
-      const tw = obj.width * 0.25
-      const th = 18
-      const towerGeo = new THREE.BoxGeometry(tw, th, tw)
-      const corners = [
-        [obj.width / 2, obj.depth / 2],
-        [-obj.width / 2, obj.depth / 2],
-        [obj.width / 2, -obj.depth / 2],
-        [-obj.width / 2, -obj.depth / 2]
-      ]
-      corners.forEach(([cx, cz]) => {
-        const tower = new THREE.Mesh(towerGeo, mat.clone())
-        tower.position.set(cx, th / 2, cz)
-        tower.castShadow = true
-        tower.receiveShadow = true
-        group.add(tower)
-      })
-
-      // Crenellations (teeth on top)
-      const toothGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2)
-      for (let x = -obj.width / 2; x <= obj.width / 2; x += 2.5) {
-        const t1 = new THREE.Mesh(toothGeo, mat.clone()); t1.position.set(x, 14.5, obj.depth / 2); group.add(t1)
-        const t2 = new THREE.Mesh(toothGeo, mat.clone()); t2.position.set(x, 14.5, -obj.depth / 2); group.add(t2)
-      }
-      for (let z = -obj.depth / 2; z <= obj.depth / 2; z += 2.5) {
-        const t1 = new THREE.Mesh(toothGeo, mat.clone()); t1.position.set(obj.width / 2, 14.5, z); group.add(t1)
-        const t2 = new THREE.Mesh(toothGeo, mat.clone()); t2.position.set(-obj.width / 2, 14.5, z); group.add(t2)
-      }
-    } else {
-      // Wall
-      const wallGeo = new THREE.BoxGeometry(obj.width, 6, obj.depth)
-      const wall = new THREE.Mesh(wallGeo, mat)
-      wall.position.y = 3
-      wall.castShadow = true
-      wall.receiveShadow = true
-      group.add(wall)
-
-      // Wall teeth
-      const toothGeo = new THREE.BoxGeometry(1.2, 1.2, obj.depth + 0.2)
-      for (let x = -obj.width / 2; x <= obj.width / 2; x += 2.2) {
-        const tooth = new THREE.Mesh(toothGeo, mat.clone())
-        tooth.position.set(x, 6.2, 0)
-        group.add(tooth)
-      }
-    }
-
-    group.position.set(obj.x, 0, obj.z)
-
-    // Health Bar
-    const hpBar = buildHealthBar()
-    hpBar.name = 'healthBar'
-    hpBar.position.y = isCastle ? 20 : 8
-    hpBar.scale.set(5.0, 3.5, 1) // Barra representativa
-    group.add(hpBar)
-
-    return group
-  }
 
   function updateRemoteHealthBar(group: THREE.Group, hp: number, maxHp: number) {
     const barGroup = group.getObjectByName('healthBar') as THREE.Group | undefined
@@ -1220,53 +784,9 @@ export function useGame(canvas: HTMLCanvasElement) {
   function pushSnapshot(snap: WorldSnapshot) {
     if (snap.roundTimeLeft !== undefined) roundTimeLeft.value = snap.roundTimeLeft
 
-    // Actualizar objetos destructibles
     if (snap.worldObjects) {
-      snap.worldObjects.forEach((obj: any) => {
-        let m = destructibleMeshes.get(obj.id)
-        if (!m) {
-          m = buildDestructibleModel(obj)
-          scene.add(m)
-          destructibleMeshes.set(obj.id, m)
-        }
-
-        // Efecto visual según salud y visibilidad
-        const hpPct = Math.max(0, obj.health / obj.maxHealth)
-        m.visible = hpPct > 0
-
-        // Actualizar barra de vida del objeto
-        const bar = m.getObjectByName('healthBar') as THREE.Group | undefined
-        if (bar) {
-          const fill = bar.getObjectByName('hpFill') as THREE.Mesh | undefined
-          if (fill) {
-            fill.scale.x = hpPct
-            fill.position.x = -(1 - hpPct) / 2
-            const mat = fill.material as THREE.MeshBasicMaterial
-            mat.color.setHex(hpPct > 0.5 ? 0x22bb22 : hpPct > 0.25 ? 0xffaa00 : 0xcc0000)
-          }
-          // Hacer que la barra mire a la cámara
-          const camPos = thirdPerson.value ? cameraThird.position : camera.position
-          bar.lookAt(camPos)
-        }
-
-        // Oscurecer el modelo según daño
-        m.traverse(child => {
-          if (child instanceof THREE.Mesh && child.name !== 'hpFill' && child.name !== 'hpBg') {
-            if (child.material instanceof THREE.MeshStandardMaterial) {
-              const baseColor = obj.type === 'CASTLE' ? 0xffffff : 0xaaaaaa
-              child.material.color.setHex(baseColor).multiplyScalar(0.4 + 0.6 * hpPct)
-            }
-          }
-        })
-      })
-
-      // Limpiar objetos eliminados del servidor
-      destructibleMeshes.forEach((mesh, id) => {
-        if (!snap.worldObjects.some(o => o.id === id)) {
-          scene.remove(mesh)
-          destructibleMeshes.delete(id)
-        }
-      })
+      const camPos = thirdPerson.value ? cameraThird.position : camera.position
+      mapControl.updateDestructibleObjects(snap.worldObjects, camPos)
     }
 
     snapshotBuffer.push({
@@ -1361,14 +881,17 @@ export function useGame(canvas: HTMLCanvasElement) {
 
       // Animación de cuerpo (Locomoción)
       const mixer = mixers.get(id)
-      if (mixer && sharedClips.walk && sharedClips.idle && sharedClips.run && !isDead) {
+      const v = playerVariant(id)
+      const clips = v === 'guard' ? guardClips : paladinClips
+
+      if (mixer && clips.walk && clips.idle && clips.run && !isDead) {
         const span = after && before ? (after.receivedAt - before.receivedAt) : 0
         const distSq = pBefore && pAfter ?
           (Math.pow(pAfter.x - pBefore.x, 2) + Math.pow(pAfter.z - pBefore.z, 2)) : 0
-        
+
         // Calcular velocidad real (m/s) para decidir si camina o corre
         const vel = (span > 0) ? (Math.sqrt(distSq) / (span / 1000)) : 0
-        updateMixerState(mixer, vel)
+        updateMixerState(mixer, vel, clips)
       } else if (mixer && isDead) {
         mixer.stopAllAction()
       }
@@ -1384,31 +907,37 @@ export function useGame(canvas: HTMLCanvasElement) {
     })
   }
 
-  function updateMixerState(mixer: THREE.AnimationMixer, velocity: number) {
-    if (!sharedClips.idle || !sharedClips.walk || !sharedClips.run) return
-    const idleAction = mixer.clipAction(sharedClips.idle)
-    const walkAction = mixer.clipAction(sharedClips.walk)
-    const runAction = mixer.clipAction(sharedClips.run)
+  function updateMixerState(mixer: THREE.AnimationMixer, velocity: number, clips: SharedClips) {
+    const idleAction = clips.idle ? mixer.clipAction(clips.idle) : null
+    const walkAction = clips.walk ? mixer.clipAction(clips.walk) : null
+    const runAction = clips.run ? mixer.clipAction(clips.run) : null
 
     let targetAction = idleAction
-    // Umbrales de velocidad: > 4.5m/s corre, > 0.1m/s camina, sino idle
-    if (velocity > 4.5) {
+    // Umbrales más sensibles: 3.5 para correr, 0.05 para caminar
+    if (velocity > 3.5 && runAction) {
       targetAction = runAction
-    } else if (velocity > 0.1) {
+    } else if (velocity > 0.05 && walkAction) {
       targetAction = walkAction
     }
 
-    if (targetAction.getEffectiveWeight() > 0.5) return
+    if (!targetAction) return
+
+    // Solo transaccionar si el cambio es real (evitamos micro-oscilaciones)
+    if (targetAction.getEffectiveWeight() > 0.95) return
 
     targetAction.enabled = true
     targetAction.setEffectiveTimeScale(1)
     targetAction.setEffectiveWeight(1)
-    if (!targetAction.isRunning()) targetAction.play()
+    targetAction.play()
+    // Asegurar que comience desde el principio si es una nueva acción
+    if (targetAction.getEffectiveWeight() < 0.1) targetAction.reset()
 
-    const others = [idleAction, walkAction, runAction].filter(a => a !== targetAction)
+    const others = [idleAction, walkAction, runAction].filter(a => a && a !== targetAction) as THREE.AnimationAction[]
     others.forEach(oldAction => {
       if (oldAction.getEffectiveWeight() > 0) {
-        oldAction.crossFadeTo(targetAction, 0.25, true)
+        oldAction.crossFadeTo(targetAction!, 0.15, true)
+      } else {
+        oldAction.stop()
       }
     })
   }
@@ -1509,11 +1038,11 @@ export function useGame(canvas: HTMLCanvasElement) {
       animateSword(dt);
       updateLocalPlayerAvatar();
       updateThirdPersonCamera();
-      updateHitBursts(dt);
+      effects.updateHitBursts(dt);
       checkPortalCollisions();
 
       // Animar portales (giro suave)
-      portalGroup.children.forEach(p => {
+      mapControl.portalGroup.children.forEach(p => {
         p.rotation.y += dt
         p.children.forEach(child => {
           if (child.userData.speed) child.position.y += Math.sin(performance.now() * 0.005 * child.userData.speed) * 0.005
@@ -1522,10 +1051,20 @@ export function useGame(canvas: HTMLCanvasElement) {
 
       // Animación de cuerpo (Locomoción Local)
       const locId = localIdForModels();
-      const locMixer = mixers.get(locId);
+      let locMixer = mixers.get(locId);
+      if (!locMixer) locMixer = mixers.get('__preview__'); // Fallback por si el ID cambió
+
       if (locMixer) {
         const vel = Math.sqrt(lastDx * lastDx + lastDz * lastDz) * MOVE_SPEED;
-        updateMixerState(locMixer, vel);
+        // Log para ver si el sistema detecta movimiento
+        if (vel > 0.01) console.log(`[Input Check] Velocidad detectada: ${vel.toFixed(2)}`);
+
+        const v = playerVariant(locId);
+        const clips = v === 'guard' ? guardClips : paladinClips;
+        updateMixerState(locMixer, vel, clips);
+      } else if (frameCount % 60 === 0 && localId.value) {
+        // Log cada 60 frames si no encontramos el mixer local
+        console.warn(`[Anim] No se encontró mixer para localId: ${locId}. Disponibles:`, Array.from(mixers.keys()));
       }
       mixers.forEach(m => m.update(dt));
 
@@ -1562,6 +1101,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     resizeObs.disconnect()
     renderer.dispose()
   })
+  loadCharacterAssets()
 
   return {
     fps,
@@ -1576,7 +1116,7 @@ export function useGame(canvas: HTMLCanvasElement) {
     toggleThirdPersonView,
     applyHitImpact,
     applyClashImpact,
-    loadKayKitAssets,
+    loadCharacterAssets,
     refreshCharacterMeshes,
     onWelcome,
     roundTimeLeft,

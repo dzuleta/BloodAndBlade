@@ -56,10 +56,6 @@ onMounted(() => {
 
   g.localId.value = ''
 
-  void g.loadKayKitAssets().catch(() => {
-    /* KayKit opcional */
-  })
-
   // Conectar al backend
   network.connect(playerName)
 
