@@ -20,6 +20,8 @@ public class WorldSnapshot {
         public int maxHealth;
         public String swingPhase;
         public String swingDir;
+        public float swingCharge;
+        public String swingPowerTier;
         public boolean blocking;
         public String blockDir;
         public float momentum;

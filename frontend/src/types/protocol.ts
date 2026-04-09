@@ -1,6 +1,7 @@
 // ─── Mensajes: Cliente → Servidor ───────────────────────────────────────────
 
 export type SwingDirection = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT'
+export type SwingPowerTier = 'CANCEL' | 'WEAK' | 'FULL'
 
 export interface InputFrame {
   type: 'INPUT'
@@ -36,6 +37,8 @@ export interface RemotePlayer {
   maxHealth: number
   swingPhase: 'IDLE' | 'WINDUP' | 'RELEASE' | 'RECOVERY' | 'BLOCKED'
   swingDir: SwingDirection
+  swingCharge: number
+  swingPowerTier: SwingPowerTier
   blocking: boolean
   blockDir: SwingDirection
   momentum: number

@@ -36,6 +36,10 @@ public class Player {
     public SwingPhase swingPhase = SwingPhase.IDLE;
     public SwingDirection swingDir = SwingDirection.RIGHT;
     public long swingPhaseEnd = 0;            // ms epoch cuando termina la fase actual
+    public long windupStartedAt = 0;          // ms epoch cuando inicio la carga del golpe
+    public float swingCharge = 0.0f;          // [0,1] porcentaje de carga actual (HUD)
+    public String swingPowerTier = "CANCEL";  // CANCEL | WEAK | FULL
+    public float releaseDamageMultiplier = 1.0f;
     public boolean blocking = false;
     public SwingDirection blockDir = SwingDirection.RIGHT;
     public float stamina = 1.0f;             // [0, 1]
@@ -74,6 +78,10 @@ public class Player {
         this.health = maxHealth;
         this.alive = true;
         this.swingPhase = SwingPhase.IDLE;
+        this.windupStartedAt = 0;
+        this.swingCharge = 0.0f;
+        this.swingPowerTier = "CANCEL";
+        this.releaseDamageMultiplier = 1.0f;
         this.blocking = false;
         this.stamina = 1.0f;
         this.hitIdsThisRelease.clear();

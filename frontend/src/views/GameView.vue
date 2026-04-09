@@ -178,6 +178,7 @@ function backToLobby() {
       :current-team="game?.localPlayerTeam.value ?? ''"
       :intended-swing-dir="input?.swingDir.value"
       :is-charging="input?.isLeftHeld.value || input?.isRightHeld.value"
+      :is-attack-charging="input?.isLeftHeld.value"
     />
 
     <!-- Overlay de cola de espera -->

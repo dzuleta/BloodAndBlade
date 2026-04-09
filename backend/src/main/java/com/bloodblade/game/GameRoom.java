@@ -206,16 +206,41 @@ public class GameRoom {
                     attacker.swingPhase = SwingPhase.WINDUP;
                     attacker.swingDir = inp.swingDir;
                     attacker.swingPhaseEnd = 0L;
+                    attacker.windupStartedAt = now;
+                    attacker.swingCharge = 0.0f;
+                    attacker.swingPowerTier = "CANCEL";
+                    attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
                     attacker.blocking = false; // Atacar cancela el bloqueo
                     attacker.hitIdsThisRelease.clear(); // Limpiar hits del swing anterior
                 }
             }
 
+            if (attacker.swingPhase == SwingPhase.WINDUP) {
+                attacker.swingCharge = computeCharge(now, attacker.windupStartedAt);
+                attacker.swingPowerTier = tierFromCharge(attacker.swingCharge);
+            }
+
             // Soltar el botón durante WINDUP ejecuta el golpe de inmediato
             if (inp.attackRelease && attacker.swingPhase == SwingPhase.WINDUP) {
-                attacker.swingPhase = SwingPhase.RELEASE;
-                attacker.swingPhaseEnd = now + cfg.releaseMs;
-                attacker.hitIdsThisRelease.clear();
+                float charge = computeCharge(now, attacker.windupStartedAt);
+                attacker.swingCharge = charge;
+                attacker.swingPowerTier = tierFromCharge(charge);
+
+                if (charge <= cfg.chargeCancelThreshold) {
+                    attacker.swingPhase = SwingPhase.IDLE;
+                    attacker.swingPhaseEnd = 0L;
+                    attacker.windupStartedAt = 0L;
+                    attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
+                    events.add(GameEvent.feint(attacker.id));
+                } else {
+                    attacker.swingPhase = SwingPhase.RELEASE;
+                    attacker.swingPhaseEnd = now + cfg.releaseMs;
+                    attacker.hitIdsThisRelease.clear();
+                    attacker.windupStartedAt = 0L;
+                    attacker.releaseDamageMultiplier = "FULL".equals(attacker.swingPowerTier)
+                            ? cfg.fullSwingDamageMultiplier
+                            : cfg.weakSwingDamageMultiplier;
+                }
             }
 
             // Liberar ataque: WINDUP → RELEASE
@@ -232,6 +257,10 @@ public class GameRoom {
                 if (attacker.swingPhase == SwingPhase.WINDUP) {
                     attacker.swingPhase = SwingPhase.IDLE;
                     attacker.swingPhaseEnd = 0;
+                    attacker.windupStartedAt = 0L;
+                    attacker.swingCharge = 0.0f;
+                    attacker.swingPowerTier = "CANCEL";
+                    attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
                 }
             }
 
@@ -243,6 +272,13 @@ public class GameRoom {
             // Actualizar dirección de swing mientras se carga (el jugador apunta con el
             // mouse)
             if (attacker.swingPhase == SwingPhase.WINDUP) {
+                if (attacker.swingDir != inp.swingDir) {
+                    // Si cambia la dirección durante la carga, reiniciar la carga para evitar
+                    // "full instantáneo" en la nueva dirección.
+                    attacker.windupStartedAt = now;
+                    attacker.swingCharge = 0.0f;
+                    attacker.swingPowerTier = "CANCEL";
+                }
                 attacker.swingDir = inp.swingDir;
             }
 
@@ -323,6 +359,9 @@ public class GameRoom {
 
             if (attacker.swingPhase == SwingPhase.IDLE) {
                 // No decaimiento de momentum aquí (ahora es regen de stamina en el tick global)
+                attacker.swingCharge = 0.0f;
+                attacker.swingPowerTier = "CANCEL";
+                attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
             }
         }
 
@@ -355,10 +394,16 @@ public class GameRoom {
             case RECOVERY -> {
                 p.swingPhase = SwingPhase.IDLE;
                 p.swingPhaseEnd = 0;
+                p.swingCharge = 0.0f;
+                p.swingPowerTier = "CANCEL";
+                p.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
             }
             case BLOCKED -> {
                 p.swingPhase = SwingPhase.IDLE;
                 p.swingPhaseEnd = 0;
+                p.swingCharge = 0.0f;
+                p.swingPowerTier = "CANCEL";
+                p.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
             }
             default -> {
             }
@@ -366,8 +411,20 @@ public class GameRoom {
     }
 
     private int calculateDamage(Player attacker, HitResult hr) {
-        // Reducido a 25% (flat 25 hp) por golpe según petición del usuario
-        return 25;
+        float chargedDamage = 25f * attacker.releaseDamageMultiplier;
+        return Math.max(1, Math.round(chargedDamage));
+    }
+
+    private float computeCharge(long now, long windupStartedAt) {
+        if (windupStartedAt <= 0L || cfg.windupMs <= 0) return 0.0f;
+        float ratio = (float) (now - windupStartedAt) / (float) cfg.windupMs;
+        return Math.max(0.0f, Math.min(1.0f, ratio));
+    }
+
+    private String tierFromCharge(float charge) {
+        if (charge <= cfg.chargeCancelThreshold) return "CANCEL";
+        if (charge < cfg.chargeWeakThreshold) return "WEAK";
+        return "FULL";
     }
 
     // ─── Snapshot y broadcast ─────────────────────────────────────────────
@@ -391,6 +448,8 @@ public class GameRoom {
             ps.maxHealth = p.maxHealth;
             ps.swingPhase = p.swingPhase.name();
             ps.swingDir = p.swingDir.name();
+            ps.swingCharge = p.swingCharge;
+            ps.swingPowerTier = p.swingPowerTier;
             ps.blocking = p.blocking;
             ps.blockDir = p.blockDir.name();
             ps.momentum = p.stamina;

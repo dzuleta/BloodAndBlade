@@ -197,6 +197,15 @@ export function useGame(canvas: HTMLCanvasElement) {
   let localZ = 0
   let localYaw = 0
   let localPitch = 0
+  // Heading usado para transformar WASD a mundo.
+  // Durante combate lo giramos con límite para evitar que el swing "jale" o cancele el movimiento.
+  let movementYaw = 0
+  let combatMovementAssistUntil = 0
+  const NORMAL_MOVING_TURN_RATE = 16 // rad/s
+  const COMBAT_MOVING_TURN_RATE = 3.4 // rad/s
+
+  const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
+  const shortestAngleDelta = (target: number, current: number) => wrapAngle(target - current)
 
   // ─── Animación de espada ─────────────────────────────────────────────────
   let swordTargetPos = SWING_REST.pos.clone()
@@ -709,12 +718,22 @@ export function useGame(canvas: HTMLCanvasElement) {
     lastDx = dx; lastDz = dz
     localYaw = yawRad
     localPitch = pitchRad
+    const moving = dx !== 0 || dz !== 0
 
-    if (dx !== 0 || dz !== 0) {
-      const sinY = Math.sin(localYaw)
-      const cosY = Math.cos(localYaw)
+    if (moving) {
+      const now = performance.now()
+      const turnRate = now < combatMovementAssistUntil ? COMBAT_MOVING_TURN_RATE : NORMAL_MOVING_TURN_RATE
+      const yawDelta = shortestAngleDelta(localYaw, movementYaw)
+      const maxStep = turnRate * dt
+      const yawStep = Math.max(-maxStep, Math.min(maxStep, yawDelta))
+      movementYaw = wrapAngle(movementYaw + yawStep)
+
+      const sinY = Math.sin(movementYaw)
+      const cosY = Math.cos(movementYaw)
       localX += (cosY * dx - sinY * dz) * MOVE_SPEED * dt
       localZ += (sinY * dx + cosY * dz) * MOVE_SPEED * dt
+    } else {
+      movementYaw = localYaw
     }
 
     // Límites del mundo
@@ -964,6 +983,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     const now = performance.now()
     swordBlockedRigid = phase === 'BLOCKED'
     swordStrikeBoostUntil = !blocking && phase === 'RELEASE' ? now + 0.50 : 0
+    if (blocking || phase === 'WINDUP') combatMovementAssistUntil = now + 120
+    else if (phase === 'RELEASE') combatMovementAssistUntil = now + 220
+    else if (phase === 'BLOCKED') combatMovementAssistUntil = now + 180
 
     const key = dir as keyof typeof SWING_RELEASE_DIRS
 
@@ -996,6 +1018,7 @@ export function useGame(canvas: HTMLCanvasElement) {
   const SWING_THRESHOLD = 35
 
   function setSwordFromInput(isLeftHeld: boolean, isRightHeld: boolean, dir: string, magnitude: number) {
+    combatMovementAssistUntil = performance.now() + 120
     swordBlockedRigid = false
     if (isRightHeld) {
       if (magnitude >= SWING_THRESHOLD) {

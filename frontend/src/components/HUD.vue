@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { RemotePlayer, GameEvent } from '../types/protocol'
+import type { RemotePlayer, GameEvent, SwingPowerTier } from '../types/protocol'
 
 const props = defineProps<{
   localPlayer: RemotePlayer | null
@@ -12,6 +12,7 @@ const props = defineProps<{
   currentTeam: string
   intendedSwingDir?: string
   isCharging?: boolean
+  isAttackCharging?: boolean
 }>()
 
 function formatTime(ms: number) {
@@ -43,6 +44,26 @@ const hpColor = computed(() => {
   if (p > 60) return '#22cc44'
   if (p > 30) return '#ffaa00'
   return '#cc2222'
+})
+
+const swingChargePercent = computed(() => {
+  if (!props.localPlayer) return 0
+  if (props.localPlayer.swingPhase !== 'WINDUP') return 0
+  const c = Math.max(0, Math.min(1, props.localPlayer.swingCharge ?? 0))
+  return c * 100
+})
+
+const swingPowerTier = computed<SwingPowerTier>(() => {
+  if (!props.localPlayer) return 'CANCEL'
+  return props.localPlayer.swingPowerTier ?? 'CANCEL'
+})
+
+const swingPowerText = computed(() => {
+  if (!props.isAttackCharging || !props.localPlayer || props.localPlayer.blocking) return ''
+  if (props.localPlayer.swingPhase !== 'WINDUP') return ''
+  if (swingPowerTier.value === 'FULL') return 'FULL STRIKE'
+  if (swingPowerTier.value === 'WEAK') return 'WEAK STRIKE'
+  return 'RELEASE NOW = CANCEL'
 })
 
 /** Aviso de bloqueo: tú rechazaste el golpe / te rechazaron el golpe */
@@ -159,8 +180,16 @@ let killMessageTimer: any = null
         {{ localPlayer.blocking ? '🛡 ' + localPlayer.blockDir : '⚔ ' + localPlayer.swingDir }}
       </template>
     </div>
-    <div class="stamina-bar">
-      <div class="stamina-fill" :style="{ width: (localPlayer.momentum * 100) + '%' }" />
+    <div v-if="isAttackCharging && !localPlayer.blocking && localPlayer.swingPhase === 'WINDUP'" class="charge-hint" :class="'tier-' + swingPowerTier.toLowerCase()">
+      {{ swingPowerText }}
+    </div>
+    <div v-if="isAttackCharging && !localPlayer.blocking && localPlayer.swingPhase === 'WINDUP'" class="charge-bar">
+      <div class="charge-zone zone-cancel"></div>
+      <div class="charge-zone zone-weak"></div>
+      <div class="charge-zone zone-full"></div>
+      <div class="charge-marker cancel-threshold"></div>
+      <div class="charge-marker full-threshold"></div>
+      <div class="charge-fill" :style="{ width: swingChargePercent + '%' }" :class="'tier-' + swingPowerTier.toLowerCase()" />
     </div>
   </div>
 
@@ -397,19 +426,85 @@ let killMessageTimer: any = null
 .swing-phase.blocked { color: #50a0ff; }
 .swing-phase.idle    { color: #ffffff; }
 
-.stamina-bar {
-  width: 100%;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.15);
-  overflow: visible;
+.charge-hint {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
 }
 
-.stamina-fill {
+.charge-hint.tier-cancel { color: #ff6f5e; }
+.charge-hint.tier-weak { color: #ffd35e; }
+.charge-hint.tier-full { color: #88ff9a; }
+
+.charge-bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.charge-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.zone-cancel {
+  left: 0;
+  width: 70%;
+  background: rgba(255, 66, 66, 0.25);
+}
+
+.zone-weak {
+  left: 70%;
+  width: 29%;
+  background: rgba(255, 181, 66, 0.3);
+}
+
+.zone-full {
+  left: 99%;
+  width: 1%;
+  background: rgba(120, 255, 140, 0.45);
+}
+
+.charge-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
-  background: #fff;
-  box-shadow: 0 0 12px #fff;
   transition: width 0.05s linear;
 }
+
+.charge-fill.tier-cancel {
+  background: linear-gradient(90deg, #ff5252, #ff8b7e);
+  box-shadow: 0 0 8px rgba(255, 90, 90, 0.7);
+}
+
+.charge-fill.tier-weak {
+  background: linear-gradient(90deg, #ffb347, #ffd95e);
+  box-shadow: 0 0 10px rgba(255, 205, 90, 0.75);
+}
+
+.charge-fill.tier-full {
+  background: linear-gradient(90deg, #8fff94, #c7ff97);
+  box-shadow: 0 0 12px rgba(135, 255, 145, 0.8);
+}
+
+.charge-marker {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+
+.cancel-threshold { left: 70%; }
+.full-threshold { left: 99%; }
 
 /* ── Leaderboard ────────────────────────────────────────── */
 .leaderboard {

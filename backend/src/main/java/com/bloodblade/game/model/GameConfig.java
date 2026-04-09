@@ -26,6 +26,12 @@ public class GameConfig {
 
     // Daño base
     public int baseDamage = 35;
+    public float weakSwingDamageMultiplier = 0.65f;
+    public float fullSwingDamageMultiplier = 1.0f;
+
+    // Carga de golpe (WINDUP)
+    public float chargeCancelThreshold = 0.70f; // <= 70%: se cancela
+    public float chargeWeakThreshold = 1.0f;    // < 100%: golpe debil
 
     // Stamina
     public float staminaRegenPerTick = 0.05f;
