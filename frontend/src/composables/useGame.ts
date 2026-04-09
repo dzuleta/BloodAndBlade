@@ -350,9 +350,8 @@ export function useGame(canvas: HTMLCanvasElement) {
     return group
   }
 
-  function playerVariant(pid: string): 'guard' | 'paladin' {
-    const id = parseInt(pid.split('-')[1]) || 0
-    return id % 2 === 0 ? 'guard' : 'paladin'
+  function playerVariant(team: string): 'guard' | 'paladin' {
+    return team === 'BARBARIAN' ? 'paladin' : 'guard'
   }
 
   function applyPaletteTexture(root: THREE.Object3D, map: THREE.Texture) {
@@ -423,13 +422,13 @@ export function useGame(canvas: HTMLCanvasElement) {
     body.add(head)
   }
 
-  function applyCharacterBody(body: THREE.Group, playerId: string, proceduralTint: number) {
+  function applyCharacterBody(body: THREE.Group, playerId: string, team: string, proceduralTint: number) {
     body.clear()
     if (!characterTemplates) {
       fillProceduralBody(body, proceduralTint)
       return
     }
-    const v = playerVariant(playerId)
+    const v = playerVariant(team)
     const tpl = v === 'guard' ? characterTemplates.guard : characterTemplates.paladin
     const c = cloneSkinned(tpl)
     c.rotateY(KAYKIT_BODY_YAW_OFFSET)
@@ -467,7 +466,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     const characterBody = new THREE.Group()
     characterBody.name = 'characterBody'
     group.add(characterBody)
-    applyCharacterBody(characterBody, localIdForModels(), 0x3a6b8e)
+    const team = localPlayerTeam.value || 'KNIGHT'
+    const tint = team === 'BARBARIAN' ? 0x8b2020 : 0x3a6b8e
+    applyCharacterBody(characterBody, localIdForModels(), team, tint)
 
     const swordAv = new THREE.Group()
     swordAv.name = 'sword'
@@ -578,8 +579,10 @@ export function useGame(canvas: HTMLCanvasElement) {
     const lid = localIdForModels()
     mountKayKitSword(swordGroup, lid)
 
+    const team = localPlayerTeam.value || 'KNIGHT'
+    const tint = team === 'BARBARIAN' ? 0x8b2020 : 0x3a6b8e
     const locBody = localPlayerAvatar.getObjectByName('characterBody') as THREE.Group | undefined
-    if (locBody) applyCharacterBody(locBody, lid, 0x3a6b8e)
+    if (locBody) applyCharacterBody(locBody, lid, team, tint)
 
     const locSword = localPlayerAvatar.getObjectByName('sword') as THREE.Group | undefined
     if (locSword) {
@@ -591,7 +594,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     remoteMeshes.forEach((mesh, id) => {
       const b = mesh.getObjectByName('characterBody') as THREE.Group | undefined
       const s = mesh.getObjectByName('sword') as THREE.Group | undefined
-      if (b) applyCharacterBody(b, id, 0x8b2020)
+      const team = mesh.userData.team || 'BARBARIAN'
+      const tint = team === 'BARBARIAN' ? 0x8b2020 : 0x3a6b8e
+      if (b) applyCharacterBody(b, id, team, tint)
       if (s) {
         mountKayKitSword(s, id)
         s.position.copy(fpSwordPos(0.4, 0.8, 0.1))
@@ -608,14 +613,25 @@ export function useGame(canvas: HTMLCanvasElement) {
     effects.applyClashImpact(x, y, z)
   }
 
-  function getOrCreateRemoteMesh(id: string): THREE.Group {
-    if (remoteMeshes.has(id)) return remoteMeshes.get(id)!
+  function getOrCreateRemoteMesh(id: string, team: string): THREE.Group {
+    if (remoteMeshes.has(id)) {
+      const mesh = remoteMeshes.get(id)!
+      if (mesh.userData.team !== team) {
+        mesh.userData.team = team
+        const b = mesh.getObjectByName('characterBody') as THREE.Group | undefined
+        const tint = team === 'BARBARIAN' ? 0x8b2020 : 0x3a6b8e
+        if (b) applyCharacterBody(b, id, team, tint)
+      }
+      return mesh
+    }
     const group = new THREE.Group()
+    group.userData.team = team
 
     const characterBody = new THREE.Group()
     characterBody.name = 'characterBody'
     group.add(characterBody)
-    applyCharacterBody(characterBody, id, 0x8b2020)
+    const tint = team === 'BARBARIAN' ? 0x8b2020 : 0x3a6b8e
+    applyCharacterBody(characterBody, id, team, tint)
 
     const swordRemote = new THREE.Group()
     swordRemote.name = 'sword'
@@ -834,7 +850,8 @@ export function useGame(canvas: HTMLCanvasElement) {
       const pBefore = before!.players.get(id)
       const pAfter = after?.players.get(id)
 
-      const mesh = getOrCreateRemoteMesh(id)
+      const rp = pAfter ?? pBefore!
+      const mesh = getOrCreateRemoteMesh(id, rp.team)
       mesh.visible = true
 
       let tx: number, ty: number, tz: number, tyaw: number
@@ -876,14 +893,13 @@ export function useGame(canvas: HTMLCanvasElement) {
       }
 
       // Animación de espada: usar el snapshot más reciente disponible
-      const rp = pAfter ?? pBefore
       if (rp && !isDead) {
         animateRemoteSword(mesh, rp.swingPhase, rp.swingDir, rp.blocking, rp.blockDir, dt)
       }
 
       // Animación de cuerpo (Locomoción)
       const mixer = mixers.get(id)
-      const v = playerVariant(id)
+      const v = playerVariant(rp?.team || 'BARBARIAN')
       const clips = v === 'guard' ? guardClips : paladinClips
 
       if (mixer && clips.walk && clips.idle && clips.run && !isDead) {
@@ -1038,7 +1054,7 @@ export function useGame(canvas: HTMLCanvasElement) {
         // Log para ver si el sistema detecta movimiento
         if (vel > 0.01) console.log(`[Input Check] Velocidad detectada: ${vel.toFixed(2)}`);
 
-        const v = playerVariant(locId);
+        const v = playerVariant(localPlayerTeam.value || 'KNIGHT');
         const clips = v === 'guard' ? guardClips : paladinClips;
         updateMixerState(locMixer, vel, clips);
       } else if (frameCount % 60 === 0 && localId.value) {

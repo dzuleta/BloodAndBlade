@@ -64,55 +64,13 @@ public class NpcBot {
         Player enemy = findNearestEnemy(allPlayers);
         handleBlocking(now, enemy, inp);
 
-        if (player.team == Team.BARBARIAN) {
-            handleBarbarianLogic(now, enemy, allPlayers, destructibles, inp);
-        } else {
-            handleKnightLogic(now, enemy, allPlayers, inp);
-        }
+        handleCombatLogic(now, enemy, allPlayers, destructibles, inp);
 
         return inp;
     }
 
-    private void handleBarbarianLogic(long now, Player enemy, Collection<Player> allPlayers, Collection<Destructible> destructibles, InputFrame inp) {
-        // Priorizar enemigos cercanos si están en rango de detección
-        if (enemy != null) {
-            double dx   = enemy.x - player.x;
-            double dz   = enemy.z - player.z;
-            double dSq  = dx * dx + dz * dz;
-
-            if (dSq < CHASE_RANGE_SQ) {
-                double dist = Math.sqrt(dSq);
-                moveTowardsWithSteering(enemy.x, enemy.z, dist, allPlayers, inp);
-                attackTarget(dist, inp, now);
-                return;
-            }
-        }
-
-        // Si no hay enemigos cerca, buscar murallas o el castillo
-        Destructible targetObj = findNearestDestructible(destructibles);
-        if (targetObj != null) {
-            // Añadir un pequeño "jitter" al objetivo para que no todos golpeen el mismo punto exacto del muro
-            double targetX = targetObj.x + (rng.nextDouble() * 2 - 1) * (targetObj.width * 0.4);
-            double targetZ = targetObj.z + (rng.nextDouble() * 2 - 1) * (targetObj.depth * 0.4);
-            
-            double dx   = targetX - player.x;
-            double dz   = targetZ - player.z;
-            double dist = Math.sqrt(dx * dx + dz * dz);
-            
-            moveTowardsWithSteering(targetX, targetZ, dist, allPlayers, inp);
-            attackTarget(dist, inp, now);
-        } else {
-            // Si no hay objetivo, ir hacia la base enemiga (Castillo del Caballero en Z=75)
-            double castleX = 0;
-            double castleZ = cfg.worldDepth / 2.0 - 10.0;
-            double dx = castleX - player.x;
-            double dz = castleZ - player.z;
-            moveTowardsWithSteering(castleX, castleZ, Math.sqrt(dx*dx + dz*dz), allPlayers, inp);
-        }
-    }
-
-    private void handleKnightLogic(long now, Player enemy, Collection<Player> allPlayers, InputFrame inp) {
-        // Detectar bárbaros y atacarlos
+    private void handleCombatLogic(long now, Player enemy, Collection<Player> allPlayers, Collection<Destructible> destructibles, InputFrame inp) {
+        // 1. Priorizar enemigos cercanos
         if (enemy != null) {
             double dx   = enemy.x - player.x;
             double dz   = enemy.z - player.z;
@@ -121,19 +79,64 @@ public class NpcBot {
             if (dSq < DETECTION_RANGE_SQ) {
                 double dist = Math.sqrt(dSq);
                 moveTowardsWithSteering(enemy.x, enemy.z, dist, allPlayers, inp);
-                attackTarget(dist, inp, now);
+                
+                // Solo atacar si no hay aliados estorbando el golpe
+                if (!isAllyInWay(allPlayers)) {
+                    attackTarget(dist, inp, now);
+                }
                 return;
             }
         }
 
-        // Si no hay enemigos, atacar la base de los bárbaros (Sur)
-        double baseTargetX = 0;
-        double baseTargetZ = -cfg.worldDepth / 2.0 + 10.0;
-        double dx = baseTargetX - player.x;
-        double dz = baseTargetZ - player.z;
-        double dist = Math.sqrt(dx*dx + dz*dz);
-        moveTowardsWithSteering(baseTargetX, baseTargetZ, dist, allPlayers, inp);
-        attackTarget(dist, inp, now);
+        // 2. Si no hay enemigos, buscar estructuras contrarias
+        Destructible targetObj = findNearestDestructible(destructibles);
+        if (targetObj != null) {
+            double targetX = targetObj.x + (rng.nextDouble() * 2 - 1) * (targetObj.width * 0.3);
+            double targetZ = targetObj.z + (rng.nextDouble() * 2 - 1) * (targetObj.depth * 0.3);
+            
+            double dx   = targetX - player.x;
+            double dz   = targetZ - player.z;
+            double dist = Math.sqrt(dx * dx + dz * dz);
+            
+            moveTowardsWithSteering(targetX, targetZ, dist, allPlayers, inp);
+            if (!isAllyInWay(allPlayers)) {
+                attackTarget(dist, inp, now);
+            }
+        } else {
+            // 3. Si no hay nada, ir a la base enemiga
+            double targetX = 0;
+            double targetZ = (player.team == Team.BARBARIAN) 
+                ? (cfg.worldDepth / 2.0 - 10.0)    // Los bárbaros van al Norte (Knight base)
+                : (-cfg.worldDepth / 2.0 + 10.0);  // Los caballeros van al Sur (Barbarian base)
+            
+            double dx = targetX - player.x;
+            double dz = targetZ - player.z;
+            double dist = Math.sqrt(dx*dx + dz*dz);
+            moveTowardsWithSteering(targetX, targetZ, dist, allPlayers, inp);
+        }
+    }
+
+    private boolean isAllyInWay(Collection<Player> allPlayers) {
+        for (Player other : allPlayers) {
+            if (other == player || !other.alive || other.team != player.team) continue;
+            
+            double dx = other.x - player.x;
+            double dz = other.z - player.z;
+            double distSq = dx * dx + dz * dz;
+            
+            // Si hay un aliado a menos de 2.5 unidades de distancia
+            if (distSq < 6.25) {
+                // Y está en el cono frontal (yaw del bot)
+                double angleToAlly = Math.atan2(dx, -dz);
+                double diff = Math.abs(angleToAlly - player.yaw);
+                if (diff > Math.PI) diff = Math.PI * 2 - diff;
+                
+                if (diff < 0.8) { // Aprox 45 grados
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void moveTowardsWithSteering(double tx, double tz, double dist, Collection<Player> allPlayers, InputFrame inp) {
