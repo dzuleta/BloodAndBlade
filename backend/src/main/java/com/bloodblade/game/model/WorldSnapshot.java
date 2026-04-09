@@ -22,6 +22,8 @@ public class WorldSnapshot {
         public String swingDir;
         public float swingCharge;
         public String swingPowerTier;
+        public long phaseRemainingMs;
+        public long phaseTotalMs;
         public boolean blocking;
         public String blockDir;
         public float momentum;

@@ -166,6 +166,7 @@ export function useInput(canvas: HTMLElement) {
       pitch: pitch.value,
       attackStart: attackStart.value,
       attackRelease: attackRelease.value,
+      attackHeld: isLeftHeld.value,
       blockDown: blockDown.value,
       blockUp: blockUp.value,
       swingDir: swingDir.value,

@@ -85,6 +85,7 @@ onMounted(() => {
       frame.pitch,
       frame.attackStart,
       frame.attackRelease,
+      frame.attackHeld,
       frame.blockDown,
       frame.blockUp,
       frame.swingDir,

@@ -40,6 +40,7 @@ public class Player {
     public float swingCharge = 0.0f;          // [0,1] porcentaje de carga actual (HUD)
     public String swingPowerTier = "CANCEL";  // CANCEL | WEAK | FULL
     public float releaseDamageMultiplier = 1.0f;
+    public float carriedWindupCharge = 0.0f;  // Carga retenida por feint (70-99%) con decay
     public boolean blocking = false;
     public SwingDirection blockDir = SwingDirection.RIGHT;
     public float stamina = 1.0f;             // [0, 1]
@@ -82,6 +83,7 @@ public class Player {
         this.swingCharge = 0.0f;
         this.swingPowerTier = "CANCEL";
         this.releaseDamageMultiplier = 1.0f;
+        this.carriedWindupCharge = 0.0f;
         this.blocking = false;
         this.stamina = 1.0f;
         this.hitIdsThisRelease.clear();

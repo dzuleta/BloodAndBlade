@@ -162,7 +162,9 @@ public class GameRoom {
                 p.spawnAtRandom();
             if (p.alive)
                 p.applyInput(p.lastInput, dt);
-            p.stamina = Math.min(1.0f, p.stamina + cfg.staminaRegenPerTick);
+            if (p.carriedWindupCharge > 0f && p.swingPhase != SwingPhase.WINDUP) {
+                p.carriedWindupCharge = Math.max(0f, p.carriedWindupCharge - (cfg.feintMomentumDecayPerSecond * (float) dt));
+            }
         }
 
         physics.resolveCollisions(activePlayers.values());
@@ -192,27 +194,21 @@ public class GameRoom {
             if (inp == null)
                 continue;
 
-            // Inicio de ataque: WINDUP si está IDLE o terminando RECOVERY
+            // Inicio de ataque: pulsación instantánea o hold sostenido.
+            // attackHeld evita perder intentos durante RECOVERY: al volver a IDLE, comienza WINDUP.
             boolean canAttack = attacker.swingPhase == SwingPhase.IDLE;
-            if (attacker.swingPhase == SwingPhase.RECOVERY) {
-                // Permitir "encadenar" si queda menos del 25% de la recuperación
-                long remaining = attacker.swingPhaseEnd - now;
-                if (remaining < (cfg.recoveryMs * 0.25))
-                    canAttack = true;
-            }
-
-            if (inp.attackStart && canAttack) {
-                if (attacker.stamina >= cfg.staminaMinToAttack) {
-                    attacker.swingPhase = SwingPhase.WINDUP;
-                    attacker.swingDir = inp.swingDir;
-                    attacker.swingPhaseEnd = 0L;
-                    attacker.windupStartedAt = now;
-                    attacker.swingCharge = 0.0f;
-                    attacker.swingPowerTier = "CANCEL";
-                    attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
-                    attacker.blocking = false; // Atacar cancela el bloqueo
-                    attacker.hitIdsThisRelease.clear(); // Limpiar hits del swing anterior
-                }
+            if ((inp.attackStart || inp.attackHeld) && canAttack) {
+                float initialCharge = Math.max(0f, Math.min(cfg.chargeWeakThreshold - 0.01f, attacker.carriedWindupCharge));
+                attacker.swingPhase = SwingPhase.WINDUP;
+                attacker.swingDir = inp.swingDir;
+                attacker.swingPhaseEnd = 0L;
+                attacker.windupStartedAt = now - (long) (initialCharge * cfg.windupMs);
+                attacker.swingCharge = initialCharge;
+                attacker.swingPowerTier = tierFromCharge(initialCharge);
+                attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
+                attacker.blocking = false; // Atacar cancela el bloqueo
+                attacker.hitIdsThisRelease.clear(); // Limpiar hits del swing anterior
+                attacker.carriedWindupCharge = 0f; // Se consume al iniciar un nuevo hold
             }
 
             if (attacker.swingPhase == SwingPhase.WINDUP) {
@@ -230,6 +226,7 @@ public class GameRoom {
                     attacker.swingPhase = SwingPhase.IDLE;
                     attacker.swingPhaseEnd = 0L;
                     attacker.windupStartedAt = 0L;
+                    attacker.carriedWindupCharge = 0f;
                     attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
                     events.add(GameEvent.feint(attacker.id));
                 } else {
@@ -243,11 +240,6 @@ public class GameRoom {
                 }
             }
 
-            // Liberar ataque: WINDUP → RELEASE
-            if (inp.attackRelease && attacker.swingPhase == SwingPhase.IDLE) {
-                // re-swing directo si tiene momentum suficiente
-            }
-
             // Inicio de bloqueo (Click derecho)
             if (inp.blockDown && !attacker.blocking) {
                 attacker.blocking = true;
@@ -255,6 +247,12 @@ public class GameRoom {
 
                 // Si estaba en WINDUP, cancelar ataque (Feint)
                 if (attacker.swingPhase == SwingPhase.WINDUP) {
+                    float charge = computeCharge(now, attacker.windupStartedAt);
+                    if (charge > cfg.chargeCancelThreshold && charge < cfg.chargeWeakThreshold) {
+                        attacker.carriedWindupCharge = charge;
+                    } else {
+                        attacker.carriedWindupCharge = 0f;
+                    }
                     attacker.swingPhase = SwingPhase.IDLE;
                     attacker.swingPhaseEnd = 0;
                     attacker.windupStartedAt = 0L;
@@ -316,16 +314,12 @@ public class GameRoom {
                     if (hr.zone() == HitZone.SWORD) {
                         attacker.swingPhase = SwingPhase.BLOCKED;
                         attacker.swingPhaseEnd = now + cfg.blockedMs;
-                        attacker.stamina = 0; // Perder toda la stamina si te bloquean
 
                         // Si el rival también está en medio de un golpe, interrumpirlo
                         if (defender.swingPhase == SwingPhase.RELEASE || defender.swingPhase == SwingPhase.WINDUP) {
                             defender.swingPhase = SwingPhase.BLOCKED;
                             defender.swingPhaseEnd = now + cfg.blockedMs;
                         }
-
-                        // Ganar stamina por bloqueo exitoso
-                        defender.stamina = Math.min(1.0f, defender.stamina + 0.5f);
 
                         GameEvent be = GameEvent.blockSuccess(defender.id, attacker.id);
                         be.message = defender.name + " blocked " + attacker.name;
@@ -337,7 +331,6 @@ public class GameRoom {
                     } else {
                         // Impacto en el cuerpo
                         attacker.hitIdsThisRelease.add(defender.id);
-                        attacker.stamina = Math.max(0, attacker.stamina - cfg.staminaCostSuccess);
                         int dmg = calculateDamage(attacker, hr);
                         defender.health -= dmg;
                         events.add(GameEvent.playerHit(attacker.id, defender.id, dmg, hr.zone()));
@@ -358,7 +351,6 @@ public class GameRoom {
             }
 
             if (attacker.swingPhase == SwingPhase.IDLE) {
-                // No decaimiento de momentum aquí (ahora es regen de stamina en el tick global)
                 attacker.swingCharge = 0.0f;
                 attacker.swingPowerTier = "CANCEL";
                 attacker.releaseDamageMultiplier = cfg.fullSwingDamageMultiplier;
@@ -378,18 +370,6 @@ public class GameRoom {
             case RELEASE -> {
                 p.swingPhase = SwingPhase.RECOVERY;
                 p.swingPhaseEnd = now + cfg.recoveryMs;
-                // Si llegamos aquí al final de release sin hits (o tras Hits), ya descontamos
-                // stamina?
-                // El usuario dijo: "Golpear exitosamente quita 20%, Intentar sin exito quita
-                // 20%".
-                // Pero si golpeamos a 3 personas, ¿quita 20% por cada una?
-                // Probablemente se refiere a 20% por SWING que conecte al menos una vez, o 20%
-                // si fallas por completo.
-                // Vamos a simplificar: si el release termina sin haber golpeado a nadie,
-                // quitamos 20%.
-                if (p.hitIdsThisRelease.isEmpty()) {
-                    p.stamina = Math.max(0, p.stamina - cfg.staminaCostMiss);
-                }
             }
             case RECOVERY -> {
                 p.swingPhase = SwingPhase.IDLE;
@@ -415,6 +395,21 @@ public class GameRoom {
         return Math.max(1, Math.round(chargedDamage));
     }
 
+    private long phaseTotalMs(Player p) {
+        return switch (p.swingPhase) {
+            case RELEASE -> cfg.releaseMs;
+            case RECOVERY -> cfg.recoveryMs;
+            case BLOCKED -> cfg.blockedMs;
+            default -> 0L;
+        };
+    }
+
+    private long phaseRemainingMs(Player p, long now) {
+        long total = phaseTotalMs(p);
+        if (total <= 0L) return 0L;
+        return Math.max(0L, p.swingPhaseEnd - now);
+    }
+
     private float computeCharge(long now, long windupStartedAt) {
         if (windupStartedAt <= 0L || cfg.windupMs <= 0) return 0.0f;
         float ratio = (float) (now - windupStartedAt) / (float) cfg.windupMs;
@@ -435,6 +430,7 @@ public class GameRoom {
         snap.serverTime = System.currentTimeMillis();
         snap.roundTimeLeft = Math.max(0, roundEndTime - snap.serverTime);
 
+        long now = snap.serverTime;
         snap.players = activePlayers.values().stream().map(p -> {
             WorldSnapshot.PlayerState ps = new WorldSnapshot.PlayerState();
             ps.id = p.id;
@@ -450,6 +446,8 @@ public class GameRoom {
             ps.swingDir = p.swingDir.name();
             ps.swingCharge = p.swingCharge;
             ps.swingPowerTier = p.swingPowerTier;
+            ps.phaseRemainingMs = phaseRemainingMs(p, now);
+            ps.phaseTotalMs = phaseTotalMs(p);
             ps.blocking = p.blocking;
             ps.blockDir = p.blockDir.name();
             ps.momentum = p.stamina;

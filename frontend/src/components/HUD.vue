@@ -66,6 +66,21 @@ const swingPowerText = computed(() => {
   return 'RELEASE NOW = CANCEL'
 })
 
+const restrainedText = computed(() => {
+  if (!props.localPlayer) return ''
+  if (props.localPlayer.swingPhase === 'BLOCKED') return 'RESTRAINED'
+  if (props.localPlayer.swingPhase === 'RECOVERY') return props.isAttackCharging ? 'RECOVERING (QUEUED)' : 'RECOVERING'
+  return ''
+})
+
+const recoveryPercent = computed(() => {
+  if (!props.localPlayer) return 0
+  if (props.localPlayer.swingPhase !== 'RECOVERY') return 0
+  const total = Math.max(1, props.localPlayer.phaseTotalMs || 0)
+  const rem = Math.max(0, props.localPlayer.phaseRemainingMs || 0)
+  return Math.max(0, Math.min(100, (rem / total) * 100))
+})
+
 /** Aviso de bloqueo: tú rechazaste el golpe / te rechazaron el golpe */
 const blockBanner = ref<'none' | 'you_blocked' | 'got_blocked'>('none')
 let blockBannerTimer: ReturnType<typeof setTimeout> | null = null
@@ -180,6 +195,7 @@ let killMessageTimer: any = null
         {{ localPlayer.blocking ? '🛡 ' + localPlayer.blockDir : '⚔ ' + localPlayer.swingDir }}
       </template>
     </div>
+    <div v-if="restrainedText" class="restrained-text">{{ restrainedText }}</div>
     <div v-if="isAttackCharging && !localPlayer.blocking && localPlayer.swingPhase === 'WINDUP'" class="charge-hint" :class="'tier-' + swingPowerTier.toLowerCase()">
       {{ swingPowerText }}
     </div>
@@ -190,6 +206,9 @@ let killMessageTimer: any = null
       <div class="charge-marker cancel-threshold"></div>
       <div class="charge-marker full-threshold"></div>
       <div class="charge-fill" :style="{ width: swingChargePercent + '%' }" :class="'tier-' + swingPowerTier.toLowerCase()" />
+    </div>
+    <div v-if="localPlayer.swingPhase === 'RECOVERY'" class="recovery-bar">
+      <div class="recovery-fill" :style="{ width: recoveryPercent + '%' }" />
     </div>
   </div>
 
@@ -425,6 +444,30 @@ let killMessageTimer: any = null
 .swing-phase.windup  { color: #ffaa33; text-shadow: 0 0 8px rgba(255,170,51,0.4); }
 .swing-phase.blocked { color: #50a0ff; }
 .swing-phase.idle    { color: #ffffff; }
+
+.restrained-text {
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #9ec8ff;
+  text-transform: uppercase;
+}
+
+.recovery-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(40, 60, 90, 0.35);
+  border: 1px solid rgba(158, 200, 255, 0.25);
+  overflow: hidden;
+}
+
+.recovery-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #9fc8ff, #6e9bff);
+  box-shadow: 0 0 10px rgba(144, 190, 255, 0.65);
+  transition: width 0.05s linear;
+}
 
 .charge-hint {
   font-size: 10px;

@@ -14,6 +14,7 @@ public class InputFrame {
     // Combate
     public boolean attackStart;
     public boolean attackRelease;
+    public boolean attackHeld;
     public boolean blockDown;
     public boolean blockUp;
     public SwingDirection swingDir = SwingDirection.RIGHT;

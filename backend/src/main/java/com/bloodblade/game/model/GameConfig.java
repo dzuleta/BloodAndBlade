@@ -32,6 +32,7 @@ public class GameConfig {
     // Carga de golpe (WINDUP)
     public float chargeCancelThreshold = 0.70f; // <= 70%: se cancela
     public float chargeWeakThreshold = 1.0f;    // < 100%: golpe debil
+    public float feintMomentumDecayPerSecond = 0.55f;
 
     // Stamina
     public float staminaRegenPerTick = 0.05f;

@@ -12,6 +12,7 @@ export interface InputFrame {
   pitch: number                    // rotación vertical (radianes)
   attackStart: boolean
   attackRelease: boolean
+  attackHeld: boolean
   blockDown: boolean
   blockUp: boolean
   swingDir: SwingDirection
@@ -39,6 +40,8 @@ export interface RemotePlayer {
   swingDir: SwingDirection
   swingCharge: number
   swingPowerTier: SwingPowerTier
+  phaseRemainingMs: number
+  phaseTotalMs: number
   blocking: boolean
   blockDir: SwingDirection
   momentum: number
