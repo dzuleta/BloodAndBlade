@@ -88,7 +88,7 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   function createPortalVisual(color: number): THREE.Group {
     const group = new THREE.Group()
-    
+
     // Anillo exterior (emisión)
     const ringGeo = new THREE.TorusGeometry(1.5, 0.1, 16, 32)
     const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 })
@@ -102,13 +102,13 @@ export function useGame(canvas: HTMLCanvasElement) {
     group.add(disc)
 
     // Partículas flotantes
-    for(let i=0; i<8; i++) {
-        const pGeo = new THREE.SphereGeometry(0.05, 4, 4)
-        const pMat = new THREE.MeshBasicMaterial({ color })
-        const p = new THREE.Mesh(pGeo, pMat)
-        p.position.set((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*0.5)
-        p.userData.speed = 0.5 + Math.random()
-        group.add(p)
+    for (let i = 0; i < 8; i++) {
+      const pGeo = new THREE.SphereGeometry(0.05, 4, 4)
+      const pMat = new THREE.MeshBasicMaterial({ color })
+      const p = new THREE.Mesh(pGeo, pMat)
+      p.position.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.5)
+      p.userData.speed = 0.5 + Math.random()
+      group.add(p)
     }
 
     return group
@@ -119,7 +119,7 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   function setupPortals() {
     portalGroup.clear()
-    
+
     // Portal de SALIDA (Pared Derecha) - Lo movemos un poco más adentro (3m)
     exitPortal = createPortalVisual(0xff33aa)
     exitPortal.position.set(WORLD_SIZE_W / 2 - 3, 2.2, 0)
@@ -128,49 +128,49 @@ export function useGame(canvas: HTMLCanvasElement) {
 
     // Portal de INICIO / RETORNO (Pared Izquierda)
     if (isFromPortal && portalRef) {
-        startPortal = createPortalVisual(0x33aaff)
-        startPortal.position.set(-WORLD_SIZE_W / 2 + 3, 2.2, 0)
-        startPortal.rotation.y = Math.PI / 2
-        portalGroup.add(startPortal)
+      startPortal = createPortalVisual(0x33aaff)
+      startPortal.position.set(-WORLD_SIZE_W / 2 + 3, 2.2, 0)
+      startPortal.rotation.y = Math.PI / 2
+      portalGroup.add(startPortal)
     }
   }
 
   function checkPortalCollisions() {
     const playerPos2D = new THREE.Vector2(localX, localZ)
-    
+
     // Check Exit Portal
     if (exitPortal) {
-        const portalPos2D = new THREE.Vector2(exitPortal.position.x, exitPortal.position.z)
-        if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
-            console.log("🚀 Entrando al Portal de Vibe Jam...")
-            const url = new URL('https://jam.pieter.com/portal/2026')
-            const snap = localSnapshot.value
-            const p = snap?.players.find(rp => rp.id === localId.value)
-            
-            url.searchParams.set('username', 'Player')
-            url.searchParams.set('color', localPlayerTeam.value === 'BARBARIAN' ? 'red' : 'blue')
-            url.searchParams.set('speed', '6')
-            url.searchParams.set('ref', window.location.origin)
-            if (p) {
-                url.searchParams.set('hp', p.health.toString())
-            }
-            
-            window.location.href = url.toString()
+      const portalPos2D = new THREE.Vector2(exitPortal.position.x, exitPortal.position.z)
+      if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
+        console.log("🚀 Entrando al Portal de Vibe Jam...")
+        const url = new URL('https://jam.pieter.com/portal/2026')
+        const snap = localSnapshot.value
+        const p = snap?.players.find(rp => rp.id === localId.value)
+
+        url.searchParams.set('username', 'Player')
+        url.searchParams.set('color', localPlayerTeam.value === 'BARBARIAN' ? 'red' : 'blue')
+        url.searchParams.set('speed', '6')
+        url.searchParams.set('ref', window.location.origin)
+        if (p) {
+          url.searchParams.set('hp', p.health.toString())
         }
+
+        window.location.href = url.toString()
+      }
     }
 
     // Check Start Portal (to go back)
     if (startPortal && portalRef) {
-        const portalPos2D = new THREE.Vector2(startPortal.position.x, startPortal.position.z)
-        if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
-            console.log("🔙 Volviendo al juego anterior...")
-            const target = portalRef.startsWith('http') ? portalRef : `https://${portalRef}`
-            const url = new URL(target)
-            params.forEach((val, key) => {
-                if (key !== 'portal' && key !== 'ref') url.searchParams.set(key, val)
-            })
-            window.location.href = url.toString()
-        }
+      const portalPos2D = new THREE.Vector2(startPortal.position.x, startPortal.position.z)
+      if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
+        console.log("🔙 Volviendo al juego anterior...")
+        const target = portalRef.startsWith('http') ? portalRef : `https://${portalRef}`
+        const url = new URL(target)
+        params.forEach((val, key) => {
+          if (key !== 'portal' && key !== 'ref') url.searchParams.set(key, val)
+        })
+        window.location.href = url.toString()
+      }
     }
   }
 
@@ -186,8 +186,8 @@ export function useGame(canvas: HTMLCanvasElement) {
     uniforms['mieCoefficient'].value = 0.005;
     uniforms['mieDirectionalG'].value = 0.7;
 
-    const phi = THREE.MathUtils.degToRad(90 - 15); // Un poco más alto que el atardecer (15 grados) para mejor luz
-    const theta = THREE.MathUtils.degToRad(90); // Luz lateral (desde un costado del coliseo)
+    const phi = THREE.MathUtils.degToRad(5); // Luz cenital (directamente desde arriba) para máxima claridad
+    const theta = THREE.MathUtils.degToRad(0);
     sunPosition.setFromSphericalCoords(1, phi, theta);
     uniforms['sunPosition'].value.copy(sunPosition);
 
@@ -198,7 +198,7 @@ export function useGame(canvas: HTMLCanvasElement) {
 
   const camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
   const cameraThird = new THREE.PerspectiveCamera(62, canvas.clientWidth / canvas.clientHeight, 0.1, 200)
-  const thirdPerson = ref(false)
+  const thirdPerson = ref(true)
   const tpCamBack = 3.55
   const tpCamRaise = 1.22
   const fwScratch = new THREE.Vector3()
@@ -254,6 +254,10 @@ export function useGame(canvas: HTMLCanvasElement) {
   const wallTex = texLoader.load('/textures/wall_stone.png')
   wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping
   wallTex.colorSpace = THREE.SRGBColorSpace
+
+  const barkTex = texLoader.load('/textures/bark.png')
+  barkTex.wrapS = barkTex.wrapT = THREE.RepeatWrapping
+  barkTex.colorSpace = THREE.SRGBColorSpace
   ground.rotation.x = -Math.PI / 2
   ground.receiveShadow = true
   scene.add(ground)
@@ -854,7 +858,13 @@ export function useGame(canvas: HTMLCanvasElement) {
     group.rotation.y = Math.random() * Math.PI * 2
 
     const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3, 6)
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 1 })
+    const tBark = barkTex.clone()
+    tBark.repeat.set(2, 2)
+    const trunkMat = new THREE.MeshStandardMaterial({
+      map: tBark,
+      color: 0xffffff,
+      roughness: 0.9
+    })
     const trunk = new THREE.Mesh(trunkGeo, trunkMat)
     trunk.position.y = 1.5
     trunk.castShadow = true
@@ -869,17 +879,19 @@ export function useGame(canvas: HTMLCanvasElement) {
       color: 0x1a4a1a,
       roughness: 1,
       transparent: true,
-      alphaTest: 0.5
+      alphaTest: 0.5,
+      side: THREE.DoubleSide
     })
 
-    // Random leaf blobs
-    for (let i = 0; i < 3; i++) {
-      const g = new THREE.IcosahedronGeometry(1.6, 0)
-      const m = new THREE.Mesh(g, fMat)
-      m.position.y = 3.5 + i * 1.2
-      m.position.x = (Math.random() - 0.5) * 0.8
-      m.position.z = (Math.random() - 0.5) * 0.8
-      m.scale.set(1, 0.8, 1)
+    // Follaje realista usando planos cruzados (técnica profesional de juegos)
+    const leafGeo = new THREE.PlaneGeometry(2.5, 2.5)
+    for (let i = 0; i < 12; i++) {
+      const m = new THREE.Mesh(leafGeo, fMat)
+      const h = 2.0 + Math.random() * 3.5
+      const r = 0.5 + Math.random() * 1.5
+      const angle = Math.random() * Math.PI * 2
+      m.position.set(Math.cos(angle) * r, h, Math.sin(angle) * r)
+      m.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0)
       m.castShadow = true
       m.receiveShadow = true
       group.add(m)
@@ -1349,11 +1361,14 @@ export function useGame(canvas: HTMLCanvasElement) {
 
       // Animación de cuerpo (Locomoción)
       const mixer = mixers.get(id)
-      if (mixer && sharedClips.walk && sharedClips.idle && !isDead) {
-        const velSq = pBefore && pAfter ?
+      if (mixer && sharedClips.walk && sharedClips.idle && sharedClips.run && !isDead) {
+        const span = after && before ? (after.receivedAt - before.receivedAt) : 0
+        const distSq = pBefore && pAfter ?
           (Math.pow(pAfter.x - pBefore.x, 2) + Math.pow(pAfter.z - pBefore.z, 2)) : 0
-        const isMoving = velSq > 0.0001
-        updateMixerState(mixer, isMoving)
+        
+        // Calcular velocidad real (m/s) para decidir si camina o corre
+        const vel = (span > 0) ? (Math.sqrt(distSq) / (span / 1000)) : 0
+        updateMixerState(mixer, vel)
       } else if (mixer && isDead) {
         mixer.stopAllAction()
       }
@@ -1369,22 +1384,33 @@ export function useGame(canvas: HTMLCanvasElement) {
     })
   }
 
-  function updateMixerState(mixer: THREE.AnimationMixer, isMoving: boolean) {
-    if (!sharedClips.idle || !sharedClips.walk) return
+  function updateMixerState(mixer: THREE.AnimationMixer, velocity: number) {
+    if (!sharedClips.idle || !sharedClips.walk || !sharedClips.run) return
     const idleAction = mixer.clipAction(sharedClips.idle)
     const walkAction = mixer.clipAction(sharedClips.walk)
+    const runAction = mixer.clipAction(sharedClips.run)
 
-    if (isMoving) {
-      if (idleAction.weight > 0.5) {
-        idleAction.crossFadeTo(walkAction, 0.25, true)
-        walkAction.play()
-      }
-    } else {
-      if (walkAction.weight > 0.5) {
-        walkAction.crossFadeTo(idleAction, 0.25, true)
-        idleAction.play()
-      }
+    let targetAction = idleAction
+    // Umbrales de velocidad: > 4.5m/s corre, > 0.1m/s camina, sino idle
+    if (velocity > 4.5) {
+      targetAction = runAction
+    } else if (velocity > 0.1) {
+      targetAction = walkAction
     }
+
+    if (targetAction.getEffectiveWeight() > 0.5) return
+
+    targetAction.enabled = true
+    targetAction.setEffectiveTimeScale(1)
+    targetAction.setEffectiveWeight(1)
+    if (!targetAction.isRunning()) targetAction.play()
+
+    const others = [idleAction, walkAction, runAction].filter(a => a !== targetAction)
+    others.forEach(oldAction => {
+      if (oldAction.getEffectiveWeight() > 0) {
+        oldAction.crossFadeTo(targetAction, 0.25, true)
+      }
+    })
   }
 
   // ─── Animación de espada local ────────────────────────────────────────────
@@ -1485,12 +1511,12 @@ export function useGame(canvas: HTMLCanvasElement) {
       updateThirdPersonCamera();
       updateHitBursts(dt);
       checkPortalCollisions();
-      
+
       // Animar portales (giro suave)
       portalGroup.children.forEach(p => {
         p.rotation.y += dt
         p.children.forEach(child => {
-            if (child.userData.speed) child.position.y += Math.sin(performance.now() * 0.005 * child.userData.speed) * 0.005
+          if (child.userData.speed) child.position.y += Math.sin(performance.now() * 0.005 * child.userData.speed) * 0.005
         })
       })
 
@@ -1498,8 +1524,8 @@ export function useGame(canvas: HTMLCanvasElement) {
       const locId = localIdForModels();
       const locMixer = mixers.get(locId);
       if (locMixer) {
-        const isLocMoving = Math.abs(lastDx) > 0.1 || Math.abs(lastDz) > 0.1;
-        updateMixerState(locMixer, isLocMoving);
+        const vel = Math.sqrt(lastDx * lastDx + lastDz * lastDz) * MOVE_SPEED;
+        updateMixerState(locMixer, vel);
       }
       mixers.forEach(m => m.update(dt));
 

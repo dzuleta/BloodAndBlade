@@ -53,23 +53,27 @@ public class GameRoom {
     private void restartRound() {
         this.roundEndTime = System.currentTimeMillis() + cfg.roundDurationMs;
         this.destructibles.clear();
-        
+
         // Castillo de los Caballeros (Norte, z ≈ +75)
-        destructibles.add(new Destructible(Destructible.Type.CASTLE, 0, cfg.worldDepth/2.0 - 5.0, 15, 10, 2000, Team.KNIGHT));
+        destructibles.add(
+                new Destructible(Destructible.Type.CASTLE, 0, cfg.worldDepth / 2.0 - 5.0, 15, 10, 2000, Team.KNIGHT));
         // Murallas de los Caballeros (z ≈ +55)
         for (int i = -1; i <= 1; i++) {
-            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, cfg.worldDepth/2.0 - 25.0, 15, 3, 800, Team.KNIGHT));
+            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, cfg.worldDepth / 2.0 - 25.0, 15, 3, 800,
+                    Team.KNIGHT));
         }
 
         // Base de los Bárbaros (Sur, z ≈ -75)
-        destructibles.add(new Destructible(Destructible.Type.CASTLE, 0, -cfg.worldDepth/2.0 + 5.0, 15, 10, 2000, Team.BARBARIAN));
+        destructibles.add(new Destructible(Destructible.Type.CASTLE, 0, -cfg.worldDepth / 2.0 + 5.0, 15, 10, 2000,
+                Team.BARBARIAN));
         // Murallas de los Bárbaros (z ≈ -55)
         for (int i = -1; i <= 1; i++) {
-            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, -cfg.worldDepth/2.0 + 25.0, 15, 3, 800, Team.BARBARIAN));
+            destructibles.add(new Destructible(Destructible.Type.WALL, i * 20, -cfg.worldDepth / 2.0 + 25.0, 15, 3, 800,
+                    Team.BARBARIAN));
         }
 
         // Posicionar jugadores
-        for(Player p : activePlayers.values()) {
+        for (Player p : activePlayers.values()) {
             p.spawnAtRandom();
         }
     }
@@ -77,8 +81,10 @@ public class GameRoom {
     private void maintainTeamBalance() {
         long bbq = activePlayers.values().stream().filter(p -> p.team == Team.BARBARIAN).count();
         long knq = activePlayers.values().stream().filter(p -> p.team == Team.KNIGHT).count();
-        if (bbq < 6) spawnBot(Team.BARBARIAN);
-        if (knq < 6) spawnBot(Team.KNIGHT);
+        if (bbq < 6)
+            spawnBot(Team.BARBARIAN);
+        if (knq < 6)
+            spawnBot(Team.KNIGHT);
     }
 
     private void spawnBot(Team team) {
@@ -91,12 +97,14 @@ public class GameRoom {
     }
 
     private void checkRoundEnd(long now, List<GameEvent> events) {
-        boolean castleDestroyed = destructibles.stream().anyMatch(d -> d.type == Destructible.Type.CASTLE && !d.alive());
+        boolean castleDestroyed = destructibles.stream()
+                .anyMatch(d -> d.type == Destructible.Type.CASTLE && !d.alive());
         boolean timeOut = now >= roundEndTime;
 
         if (castleDestroyed || timeOut) {
             Team winner = castleDestroyed ? Team.BARBARIAN : Team.KNIGHT;
-            String msg = (winner == Team.BARBARIAN ? "BARBARIANS WIN!" : "KNIGHTS WIN!") + " Castle Defended: " + !castleDestroyed;
+            String msg = (winner == Team.BARBARIAN ? "BARBARIANS WIN!" : "KNIGHTS WIN!") + " Castle Defended: "
+                    + !castleDestroyed;
             events.add(GameEvent.message("ROUND_OVER", msg));
             restartRound();
         }
@@ -131,7 +139,8 @@ public class GameRoom {
 
     public void onInput(String sessionId, InputFrame input) {
         Player p = sessionToPlayer.get(sessionId);
-        if (p != null) p.lastInput = input;
+        if (p != null)
+            p.lastInput = input;
     }
 
     // ─── Tick principal (llamado por GameLoop) ────────────────────────────
@@ -144,12 +153,15 @@ public class GameRoom {
 
         for (NpcBot bot : bots) {
             InputFrame botInput = bot.buildInput(now, activePlayers.values(), destructibles);
-            if (botInput != null) bot.player.lastInput = botInput;
+            if (botInput != null)
+                bot.player.lastInput = botInput;
         }
 
         for (Player p : activePlayers.values()) {
-            if (!p.alive && now >= p.respawnAt) p.spawnAtRandom();
-            if (p.alive) p.applyInput(p.lastInput, dt);
+            if (!p.alive && now >= p.respawnAt)
+                p.spawnAtRandom();
+            if (p.alive)
+                p.applyInput(p.lastInput, dt);
             p.stamina = Math.min(1.0f, p.stamina + cfg.staminaRegenPerTick);
         }
 
@@ -160,7 +172,8 @@ public class GameRoom {
 
         WorldSnapshot snap = buildSnapshot();
         broadcastSnapshot(snap);
-        for (GameEvent ev : events) broadcastEvent(ev);
+        for (GameEvent ev : events)
+            broadcastEvent(ev);
     }
 
     // ─── Máquina de estados de combate ───────────────────────────────────
@@ -169,27 +182,30 @@ public class GameRoom {
         List<GameEvent> events = new ArrayList<>();
 
         for (Player attacker : activePlayers.values()) {
-            if (!attacker.alive) continue;
+            if (!attacker.alive)
+                continue;
             InputFrame inp = attacker.lastInput;
 
             // Transiciones por tiempo de fase
             advanceSwingPhase(attacker, now);
 
-            if (inp == null) continue;
+            if (inp == null)
+                continue;
 
             // Inicio de ataque: WINDUP si está IDLE o terminando RECOVERY
             boolean canAttack = attacker.swingPhase == SwingPhase.IDLE;
             if (attacker.swingPhase == SwingPhase.RECOVERY) {
-               // Permitir "encadenar" si queda menos del 25% de la recuperación
-               long remaining = attacker.swingPhaseEnd - now;
-               if (remaining < (cfg.recoveryMs * 0.25)) canAttack = true;
+                // Permitir "encadenar" si queda menos del 25% de la recuperación
+                long remaining = attacker.swingPhaseEnd - now;
+                if (remaining < (cfg.recoveryMs * 0.25))
+                    canAttack = true;
             }
 
             if (inp.attackStart && canAttack) {
                 if (attacker.stamina >= cfg.staminaMinToAttack) {
                     attacker.swingPhase = SwingPhase.WINDUP;
                     attacker.swingDir = inp.swingDir;
-                    attacker.swingPhaseEnd = 0L; 
+                    attacker.swingPhaseEnd = 0L;
                     attacker.blocking = false; // Atacar cancela el bloqueo
                     attacker.hitIdsThisRelease.clear(); // Limpiar hits del swing anterior
                 }
@@ -204,14 +220,14 @@ public class GameRoom {
 
             // Liberar ataque: WINDUP → RELEASE
             if (inp.attackRelease && attacker.swingPhase == SwingPhase.IDLE) {
-                // re-swing directo si tiene momentum suficiente 
+                // re-swing directo si tiene momentum suficiente
             }
 
             // Inicio de bloqueo (Click derecho)
             if (inp.blockDown && !attacker.blocking) {
                 attacker.blocking = true;
                 attacker.blockDir = inp.swingDir;
-                
+
                 // Si estaba en WINDUP, cancelar ataque (Feint)
                 if (attacker.swingPhase == SwingPhase.WINDUP) {
                     attacker.swingPhase = SwingPhase.IDLE;
@@ -224,7 +240,8 @@ public class GameRoom {
                 attacker.blocking = false;
             }
 
-            // Actualizar dirección de swing mientras se carga (el jugador apunta con el mouse)
+            // Actualizar dirección de swing mientras se carga (el jugador apunta con el
+            // mouse)
             if (attacker.swingPhase == SwingPhase.WINDUP) {
                 attacker.swingDir = inp.swingDir;
             }
@@ -248,25 +265,29 @@ public class GameRoom {
 
                 // 2. Hits sobre otros jugadores
                 for (Player defender : activePlayers.values()) {
-                    if (defender.id.equals(attacker.id) || !defender.alive) continue;
-                    if (defender.team == attacker.team) continue; // No fuego amigo
-                    if (attacker.hitIdsThisRelease.contains(defender.id)) continue;
+                    if (defender.id.equals(attacker.id) || !defender.alive)
+                        continue;
+                    if (defender.team == attacker.team)
+                        continue; // No fuego amigo
+                    if (attacker.hitIdsThisRelease.contains(defender.id))
+                        continue;
 
                     HitResult hr = physics.detectHit(attacker, defender);
-                    if (!hr.hit()) continue;
+                    if (!hr.hit())
+                        continue;
 
                     // Bloqueo o Choque de espadas
                     if (hr.zone() == HitZone.SWORD) {
                         attacker.swingPhase = SwingPhase.BLOCKED;
                         attacker.swingPhaseEnd = now + cfg.blockedMs;
                         attacker.stamina = 0; // Perder toda la stamina si te bloquean
-                        
+
                         // Si el rival también está en medio de un golpe, interrumpirlo
                         if (defender.swingPhase == SwingPhase.RELEASE || defender.swingPhase == SwingPhase.WINDUP) {
                             defender.swingPhase = SwingPhase.BLOCKED;
                             defender.swingPhaseEnd = now + cfg.blockedMs;
                         }
-                        
+
                         // Ganar stamina por bloqueo exitoso
                         defender.stamina = Math.min(1.0f, defender.stamina + 0.5f);
 
@@ -274,7 +295,7 @@ public class GameRoom {
                         be.message = defender.name + " blocked " + attacker.name;
                         events.add(be);
 
-                        log.debug("CLASH: {} y {} chocaron espadas ({})", 
+                        log.debug("CLASH: {} y {} chocaron espadas ({})",
                                 defender.name, attacker.name, attacker.swingDir);
                         break;
                     } else {
@@ -310,30 +331,43 @@ public class GameRoom {
 
     private void advanceSwingPhase(Player p, long now) {
         // WINDUP no expira por tiempo: el golpe solo sale al soltar (attackRelease).
-        if (p.swingPhase == SwingPhase.WINDUP) return;
-        if (now < p.swingPhaseEnd) return;
+        if (p.swingPhase == SwingPhase.WINDUP)
+            return;
+        if (now < p.swingPhaseEnd)
+            return;
         switch (p.swingPhase) {
-            case RELEASE  -> { 
-                p.swingPhase = SwingPhase.RECOVERY; 
-                p.swingPhaseEnd = now + cfg.recoveryMs; 
-                // Si llegamos aquí al final de release sin hits (o tras Hits), ya descontamos stamina?
-                // El usuario dijo: "Golpear exitosamente quita 20%, Intentar sin exito quita 20%".
-                // Pero si golpeamos a 3 personas, ¿quita 20% por cada una? 
-                // Probablemente se refiere a 20% por SWING que conecte al menos una vez, o 20% si fallas por completo.
-                // Vamos a simplificar: si el release termina sin haber golpeado a nadie, quitamos 20%.
+            case RELEASE -> {
+                p.swingPhase = SwingPhase.RECOVERY;
+                p.swingPhaseEnd = now + cfg.recoveryMs;
+                // Si llegamos aquí al final de release sin hits (o tras Hits), ya descontamos
+                // stamina?
+                // El usuario dijo: "Golpear exitosamente quita 20%, Intentar sin exito quita
+                // 20%".
+                // Pero si golpeamos a 3 personas, ¿quita 20% por cada una?
+                // Probablemente se refiere a 20% por SWING que conecte al menos una vez, o 20%
+                // si fallas por completo.
+                // Vamos a simplificar: si el release termina sin haber golpeado a nadie,
+                // quitamos 20%.
                 if (p.hitIdsThisRelease.isEmpty()) {
                     p.stamina = Math.max(0, p.stamina - cfg.staminaCostMiss);
                 }
             }
-            case RECOVERY -> { p.swingPhase = SwingPhase.IDLE;     p.swingPhaseEnd = 0; }
-            case BLOCKED  -> { p.swingPhase = SwingPhase.IDLE;     p.swingPhaseEnd = 0; }
-            default -> {}
+            case RECOVERY -> {
+                p.swingPhase = SwingPhase.IDLE;
+                p.swingPhaseEnd = 0;
+            }
+            case BLOCKED -> {
+                p.swingPhase = SwingPhase.IDLE;
+                p.swingPhaseEnd = 0;
+            }
+            default -> {
+            }
         }
     }
 
     private int calculateDamage(Player attacker, HitResult hr) {
-        // Reducido a 20% (flat 20 hp) por golpe según petición del usuario
-        return 20;
+        // Reducido a 25% (flat 25 hp) por golpe según petición del usuario
+        return 25;
     }
 
     // ─── Snapshot y broadcast ─────────────────────────────────────────────
@@ -343,13 +377,16 @@ public class GameRoom {
         snap.tick = tickCount;
         snap.serverTime = System.currentTimeMillis();
         snap.roundTimeLeft = Math.max(0, roundEndTime - snap.serverTime);
-        
+
         snap.players = activePlayers.values().stream().map(p -> {
             WorldSnapshot.PlayerState ps = new WorldSnapshot.PlayerState();
             ps.id = p.id;
             ps.name = p.name;
-            ps.x = p.x; ps.y = p.y; ps.z = p.z;
-            ps.yaw = p.yaw; ps.pitch = p.pitch;
+            ps.x = p.x;
+            ps.y = p.y;
+            ps.z = p.z;
+            ps.yaw = p.yaw;
+            ps.pitch = p.pitch;
             ps.health = p.health;
             ps.maxHealth = p.maxHealth;
             ps.swingPhase = p.swingPhase.name();
@@ -367,8 +404,10 @@ public class GameRoom {
             WorldSnapshot.DestructibleState ds = new WorldSnapshot.DestructibleState();
             ds.id = d.id;
             ds.type = d.type.name();
-            ds.x = d.x; ds.z = d.z;
-            ds.width = d.width; ds.depth = d.depth;
+            ds.x = d.x;
+            ds.z = d.z;
+            ds.width = d.width;
+            ds.depth = d.depth;
             ds.health = d.health;
             ds.maxHealth = d.maxHealth;
             return ds;
@@ -379,19 +418,23 @@ public class GameRoom {
 
     private void broadcastSnapshot(WorldSnapshot snap) {
         String json = toJson(snap);
-        if (json == null) return;
+        if (json == null)
+            return;
         TextMessage msg = new TextMessage(json);
         for (Player p : activePlayers.values()) {
-            if (p.session != null) sendSafe(p.session, msg);
+            if (p.session != null)
+                sendSafe(p.session, msg);
         }
     }
 
     private void broadcastEvent(GameEvent ev) {
         String json = toJson(ev);
-        if (json == null) return;
+        if (json == null)
+            return;
         TextMessage msg = new TextMessage(json);
         for (Player p : activePlayers.values()) {
-            if (p.session != null) sendSafe(p.session, msg);
+            if (p.session != null)
+                sendSafe(p.session, msg);
         }
     }
 
@@ -399,7 +442,7 @@ public class GameRoom {
 
     private void admitPlayer(WebSocketSession session, String playerName) {
         Player p = new Player(session, playerName, cfg);
-        
+
         // Asignación aleatoria de equipo
         p.team = Math.random() > 0.5 ? Team.BARBARIAN : Team.KNIGHT;
         p.spawnAtRandom();
@@ -415,7 +458,8 @@ public class GameRoom {
         welcome.put("worldWidth", cfg.worldWidth);
         welcome.put("worldDepth", cfg.worldDepth);
         String json = toJson(welcome);
-        if (json != null) sendSafe(session, new TextMessage(json));
+        if (json != null)
+            sendSafe(session, new TextMessage(json));
 
         broadcastEvent(GameEvent.playerJoined(p.id, p.name));
         log.info("Player '{}' ({}) admitido en equipo {}. Activos: {}", p.name, p.id, p.team, activePlayers.size());
@@ -423,7 +467,8 @@ public class GameRoom {
 
     private void promoteFromQueue() {
         QueueEntry next = waitQueue.poll();
-        if (next == null) return;
+        if (next == null)
+            return;
         if (!next.session.isOpen()) {
             promoteFromQueue(); // saltar sesiones cerradas
             return;
@@ -436,7 +481,8 @@ public class GameRoom {
         int pos = 1;
         int total = waitQueue.size();
         for (QueueEntry q : waitQueue) {
-            if (q.session.getId().equals(session.getId())) break;
+            if (q.session.getId().equals(session.getId()))
+                break;
             pos++;
         }
         Map<String, Object> msg = new LinkedHashMap<>();
@@ -444,19 +490,22 @@ public class GameRoom {
         msg.put("position", pos);
         msg.put("total", total);
         String json = toJson(msg);
-        if (json != null) sendSafe(session, new TextMessage(json));
+        if (json != null)
+            sendSafe(session, new TextMessage(json));
     }
 
     private void broadcastQueueUpdates() {
         waitQueue.forEach(q -> {
-            if (q.session.isOpen()) sendQueueUpdate(q.session);
+            if (q.session.isOpen())
+                sendQueueUpdate(q.session);
         });
     }
 
     // ─── Utilidades ───────────────────────────────────────────────────────
 
     private void sendSafe(WebSocketSession session, TextMessage msg) {
-        if (!session.isOpen()) return;
+        if (!session.isOpen())
+            return;
         try {
             synchronized (session) {
                 session.sendMessage(msg);
@@ -475,8 +524,14 @@ public class GameRoom {
         }
     }
 
-    public int getActiveCount() { return activePlayers.size(); }
-    public int getQueueSize()   { return waitQueue.size(); }
+    public int getActiveCount() {
+        return activePlayers.size();
+    }
 
-    private record QueueEntry(WebSocketSession session, String playerName) {}
+    public int getQueueSize() {
+        return waitQueue.size();
+    }
+
+    private record QueueEntry(WebSocketSession session, String playerName) {
+    }
 }
