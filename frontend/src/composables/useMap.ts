@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { Sky } from 'three/addons/objects/Sky.js'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 
 export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   const destructibleMeshes = new Map<string, THREE.Group>()
@@ -74,8 +74,8 @@ export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   // Portales
   const portalGroup = new THREE.Group()
   scene.add(portalGroup)
-  let exitPortal: THREE.Group | null = null
-  let startPortal: THREE.Group | null = null
+  const exitPortal = shallowRef<THREE.Group | null>(null)
+  const startPortal = shallowRef<THREE.Group | null>(null)
 
   function createPortalVisual(color: number): THREE.Group {
     const group = new THREE.Group()
@@ -102,16 +102,16 @@ export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
 
   function setupPortals(WORLD_SIZE_W: number, isFromPortal: boolean, portalRef: string) {
     portalGroup.clear()
-    exitPortal = createPortalVisual(0xff33aa)
-    exitPortal.position.set(WORLD_SIZE_W / 2 - 3, 2.2, 0)
-    exitPortal.rotation.y = -Math.PI / 2
-    portalGroup.add(exitPortal)
+    exitPortal.value = createPortalVisual(0xff33aa)
+    exitPortal.value.position.set(WORLD_SIZE_W / 2 - 3, 2.2, 0)
+    exitPortal.value.rotation.y = -Math.PI / 2
+    portalGroup.add(exitPortal.value)
 
     if (isFromPortal && portalRef) {
-      startPortal = createPortalVisual(0x33aaff)
-      startPortal.position.set(-WORLD_SIZE_W / 2 + 3, 2.2, 0)
-      startPortal.rotation.y = Math.PI / 2
-      portalGroup.add(startPortal)
+      startPortal.value = createPortalVisual(0x33aaff)
+      startPortal.value.position.set(-WORLD_SIZE_W / 2 + 3, 2.2, 0)
+      startPortal.value.rotation.y = Math.PI / 2
+      portalGroup.add(startPortal.value)
     }
   }
 

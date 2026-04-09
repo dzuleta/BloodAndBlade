@@ -93,8 +93,8 @@ export function useGame(canvas: HTMLCanvasElement) {
     const playerPos2D = new THREE.Vector2(localX, localZ)
 
     // Check Exit Portal
-    if (mapControl.exitPortal) {
-      const portalPos2D = new THREE.Vector2(mapControl.exitPortal.position.x, mapControl.exitPortal.position.z)
+    if (mapControl.exitPortal.value) {
+      const portalPos2D = new THREE.Vector2(mapControl.exitPortal.value.position.x, mapControl.exitPortal.value.position.z)
       if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
         console.log("🚀 Entrando al Portal de Vibe Jam...")
         const url = new URL('https://jam.pieter.com/portal/2026')
@@ -114,8 +114,8 @@ export function useGame(canvas: HTMLCanvasElement) {
     }
 
     // Check Start Portal (to go back)
-    if (mapControl.startPortal && portalRef) {
-      const portalPos2D = new THREE.Vector2(mapControl.startPortal.position.x, mapControl.startPortal.position.z)
+    if (mapControl.startPortal.value && portalRef) {
+      const portalPos2D = new THREE.Vector2(mapControl.startPortal.value.position.x, mapControl.startPortal.value.position.z)
       if (playerPos2D.distanceTo(portalPos2D) < 2.5) {
         console.log("🔙 Volviendo al juego anterior...")
         const target = portalRef.startsWith('http') ? portalRef : `https://${portalRef}`
