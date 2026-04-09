@@ -439,9 +439,9 @@ export function useGame(canvas: HTMLCanvasElement) {
     const clips = v === 'guard' ? guardClips : paladinClips
     if (clips.idle) {
       const mixer = new THREE.AnimationMixer(c)
-      const action = mixer.clipAction(clips.idle)
-      action.play()
       mixers.set(playerId, mixer)
+      // Forzar estado inicial IDLE
+      updateMixerState(mixer, 0, clips)
     }
   }
 
@@ -529,10 +529,12 @@ export function useGame(canvas: HTMLCanvasElement) {
     // --- ANIMACIONES (Mixamo Rig) ---
     const cleanClips = (gltfClips: THREE.AnimationClip[], target: SharedClips) => {
       const findClip = (namePart: string) => {
-        const search = [namePart.toLowerCase()];
-        if (namePart === 'walk') search.push('walk', 'camina', 'step', 'march');
-        if (namePart === 'run') search.push('run', 'corre', 'sprint');
-        return gltfClips.find(a => search.some(s => a.name.toLowerCase().includes(s))) || gltfClips[0] || null;
+        const lowerName = namePart.toLowerCase();
+
+        // 1. PRIORIDAD: Búsqueda exacta del nombre confirmado por el usuario
+        const exact = gltfClips.find(a => a.name.toLowerCase() === lowerName);
+        if (exact) console.log(`[AssetLoader] findClip('${namePart}') -> Found: ${exact.name}`);
+        return exact || null;
       }
 
       target.idle = findClip('idle')
@@ -889,8 +891,9 @@ export function useGame(canvas: HTMLCanvasElement) {
         const distSq = pBefore && pAfter ?
           (Math.pow(pAfter.x - pBefore.x, 2) + Math.pow(pAfter.z - pBefore.z, 2)) : 0
 
-        // Calcular velocidad real (m/s) para decidir si camina o corre
-        const vel = (span > 0) ? (Math.sqrt(distSq) / (span / 1000)) : 0
+        // Calcular velocidad real (m/s) más estable
+        // math.min(10) para evitar picos de red / teleports que disparen animaciones de carrera
+        const vel = (span > 0) ? Math.min(10, Math.sqrt(distSq) / (span / 1000)) : 0
         updateMixerState(mixer, vel, clips)
       } else if (mixer && isDead) {
         mixer.stopAllAction()
@@ -908,38 +911,14 @@ export function useGame(canvas: HTMLCanvasElement) {
   }
 
   function updateMixerState(mixer: THREE.AnimationMixer, velocity: number, clips: SharedClips) {
-    const idleAction = clips.idle ? mixer.clipAction(clips.idle) : null
-    const walkAction = clips.walk ? mixer.clipAction(clips.walk) : null
-    const runAction = clips.run ? mixer.clipAction(clips.run) : null
+    if (!clips.idle) return
+    const targetAction = mixer.clipAction(clips.idle)
 
-    let targetAction = idleAction
-    // Umbrales más sensibles: 3.5 para correr, 0.05 para caminar
-    if (velocity > 3.5 && runAction) {
-      targetAction = runAction
-    } else if (velocity > 0.05 && walkAction) {
-      targetAction = walkAction
-    }
-
-    if (!targetAction) return
-
-    // Solo transaccionar si el cambio es real (evitamos micro-oscilaciones)
-    if (targetAction.getEffectiveWeight() > 0.95) return
-
+    // Solo IDLE por ahora para depurar
     targetAction.enabled = true
     targetAction.setEffectiveTimeScale(1)
     targetAction.setEffectiveWeight(1)
-    targetAction.play()
-    // Asegurar que comience desde el principio si es una nueva acción
-    if (targetAction.getEffectiveWeight() < 0.1) targetAction.reset()
-
-    const others = [idleAction, walkAction, runAction].filter(a => a && a !== targetAction) as THREE.AnimationAction[]
-    others.forEach(oldAction => {
-      if (oldAction.getEffectiveWeight() > 0) {
-        oldAction.crossFadeTo(targetAction!, 0.15, true)
-      } else {
-        oldAction.stop()
-      }
-    })
+    if (!targetAction.isRunning()) targetAction.play()
   }
 
   // ─── Animación de espada local ────────────────────────────────────────────
