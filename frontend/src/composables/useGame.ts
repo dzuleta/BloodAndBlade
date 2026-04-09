@@ -13,7 +13,9 @@ let WORLD_SIZE_W = 80
 let WORLD_SIZE_D = 160
 
 /** KayKit Adventurers (FBX + texturas en /public/models/kaykit) */
-const KAYKIT_BASE = '/models/kaykit/'
+const ASSET_BASE = import.meta.env.BASE_URL
+const KAYKIT_BASE = `${ASSET_BASE}models/kaykit/`
+const BLENDER_BASE = `${ASSET_BASE}models/blender/`
 /** El FBX mira al revés respecto al yaw del juego (−tyaw en el padre) */
 const KAYKIT_BODY_YAW_OFFSET = Math.PI
 /**
@@ -498,8 +500,8 @@ export function useGame(canvas: HTMLCanvasElement) {
     const url = (f: string) => `${KAYKIT_BASE}${f}`
 
     const [guardGltf, paladinGltf] = await Promise.all([
-      gltfLoader.loadAsync('/models/blender/guard1.glb'),
-      gltfLoader.loadAsync('/models/blender/paladin.glb')
+      gltfLoader.loadAsync(`${BLENDER_BASE}guard1.glb`),
+      gltfLoader.loadAsync(`${BLENDER_BASE}paladin.glb`)
     ])
 
     const guardMesh = guardGltf.scene

@@ -5,22 +5,23 @@ import { ref, shallowRef } from 'vue'
 export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   const destructibleMeshes = new Map<string, THREE.Group>()
   const texLoader = new THREE.TextureLoader()
+  const textureUrl = (file: string) => `${import.meta.env.BASE_URL}textures/${file}`
 
   // Texturas de Estructuras
-  const groundTex = texLoader.load('/textures/ground.png')
+  const groundTex = texLoader.load(textureUrl('ground.png'))
   groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping
   groundTex.anisotropy = renderer.capabilities.getMaxAnisotropy()
   groundTex.colorSpace = THREE.SRGBColorSpace
 
-  const castleTex = texLoader.load('/textures/stone_bricks.png')
+  const castleTex = texLoader.load(textureUrl('stone_bricks.png'))
   castleTex.wrapS = castleTex.wrapT = THREE.RepeatWrapping
   castleTex.colorSpace = THREE.SRGBColorSpace
 
-  const wallTex = texLoader.load('/textures/wall_stone.png')
+  const wallTex = texLoader.load(textureUrl('wall_stone.png'))
   wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping
   wallTex.colorSpace = THREE.SRGBColorSpace
 
-  const barkTex = texLoader.load('/textures/bark.png')
+  const barkTex = texLoader.load(textureUrl('bark.png'))
   barkTex.wrapS = barkTex.wrapT = THREE.RepeatWrapping
   barkTex.colorSpace = THREE.SRGBColorSpace
 
@@ -135,7 +136,7 @@ export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     trunk.receiveShadow = true
     group.add(trunk)
 
-    const fTex = texLoader.load('/textures/foliage.png')
+    const fTex = texLoader.load(textureUrl('foliage.png'))
     fTex.colorSpace = THREE.SRGBColorSpace
     const fMat = new THREE.MeshStandardMaterial({
       map: fTex,
