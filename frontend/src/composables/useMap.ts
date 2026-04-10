@@ -5,7 +5,10 @@ import { ref, shallowRef } from 'vue'
 export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   const destructibleMeshes = new Map<string, THREE.Group>()
   const texLoader = new THREE.TextureLoader()
-  const textureUrl = (file: string) => `${import.meta.env.BASE_URL}textures/${file}`
+  const base = import.meta.env.BASE_URL.endsWith('/')
+    ? import.meta.env.BASE_URL
+    : `${import.meta.env.BASE_URL}/`
+  const textureUrl = (file: string) => `${base}textures/${file}`
 
   // Texturas de Estructuras
   const groundTex = texLoader.load(textureUrl('ground.png'))
@@ -177,7 +180,6 @@ export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
       const geo = new THREE.BoxGeometry(w, h, 2)
       const t = wallTex.clone()
       t.repeat.set(w / 4, h / 4)
-      t.needsUpdate = true
       const mat = new THREE.MeshStandardMaterial({ map: t, color: 0x888888, roughness: 0.8, metalness: 0.2 })
       const mesh = new THREE.Mesh(geo, mat)
       mesh.position.set(x, h / 2 - 0.2, z)
@@ -216,7 +218,6 @@ export function useMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     const isCastle = obj.type === 'CASTLE'
     const tex = isCastle ? castleTex.clone() : wallTex.clone()
     tex.repeat.set(obj.width / 3, isCastle ? 4 : 2)
-    tex.needsUpdate = true
     const mat = new THREE.MeshStandardMaterial({ map: tex, color: isCastle ? 0xffffff : 0xaaaaaa, metalness: 0.2, roughness: 0.7 })
 
     if (isCastle) {

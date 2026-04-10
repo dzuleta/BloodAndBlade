@@ -12,3 +12,6 @@ backend/gradlew.bat
 **/.vercel/
 **/.next/
 *.zip
+**/blender/*
+!frontend/public/models/blender/
+!frontend/public/models/blender/*.glb

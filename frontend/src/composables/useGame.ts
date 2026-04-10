@@ -13,7 +13,9 @@ let WORLD_SIZE_W = 80
 let WORLD_SIZE_D = 160
 
 /** KayKit Adventurers (FBX + texturas en /public/models/kaykit) */
-const ASSET_BASE = import.meta.env.BASE_URL
+const ASSET_BASE = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`
 const KAYKIT_BASE = `${ASSET_BASE}models/kaykit/`
 const BLENDER_BASE = `${ASSET_BASE}models/blender/`
 /** El FBX mira al revés respecto al yaw del juego (−tyaw en el padre) */
@@ -447,9 +449,11 @@ export function useGame(canvas: HTMLCanvasElement) {
 
     // Configurar Animación
     const clips = v === 'guard' ? guardClips : paladinClips
+    const prevMixer = mixers.get(playerId)
+    if (prevMixer) prevMixer.stopAllAction()
+    const mixer = new THREE.AnimationMixer(c)
+    mixers.set(playerId, mixer)
     if (clips.idle) {
-      const mixer = new THREE.AnimationMixer(c)
-      mixers.set(playerId, mixer)
       // Forzar estado inicial IDLE
       updateMixerState(mixer, 0, clips)
     }
@@ -494,15 +498,16 @@ export function useGame(canvas: HTMLCanvasElement) {
   scene.add(localPlayerAvatar)
 
   async function loadCharacterAssets(): Promise<void> {
-    const texLoader = new THREE.TextureLoader()
-    const fbx = new FBXLoader()
-    const gltfLoader = new GLTFLoader()
-    const url = (f: string) => `${KAYKIT_BASE}${f}`
+    try {
+      const texLoader = new THREE.TextureLoader()
+      const fbx = new FBXLoader()
+      const gltfLoader = new GLTFLoader()
+      const url = (f: string) => `${KAYKIT_BASE}${f}`
 
-    const [guardGltf, paladinGltf] = await Promise.all([
-      gltfLoader.loadAsync(`${BLENDER_BASE}guard1.glb`),
-      gltfLoader.loadAsync(`${BLENDER_BASE}paladin.glb`)
-    ])
+      const [guardGltf, paladinGltf] = await Promise.all([
+        gltfLoader.loadAsync(`${BLENDER_BASE}guard1.glb`),
+        gltfLoader.loadAsync(`${BLENDER_BASE}paladin.glb`)
+      ])
 
     const guardMesh = guardGltf.scene
     const paladinMesh = paladinGltf.scene
@@ -515,7 +520,6 @@ export function useGame(canvas: HTMLCanvasElement) {
             // Asegurar que las texturas usen el espacio de color correcto
             if (node.material.map) {
               node.material.map.colorSpace = THREE.SRGBColorSpace
-              node.material.map.needsUpdate = true
             }
 
             // Los modelos de Blender suelen venir con metalness al máximo
@@ -583,7 +587,11 @@ export function useGame(canvas: HTMLCanvasElement) {
       swordGuard: new THREE.Group()
     };
 
-    refreshCharacterMeshes()
+      refreshCharacterMeshes()
+    } catch (err) {
+      console.error('[AssetLoader] Error cargando modelos GLB', err)
+      console.error('[AssetLoader] URLs usadas:', `${BLENDER_BASE}guard1.glb`, `${BLENDER_BASE}paladin.glb`)
+    }
   }
 
   function refreshCharacterMeshes() {
@@ -1076,13 +1084,10 @@ export function useGame(canvas: HTMLCanvasElement) {
 
       if (locMixer) {
         const vel = Math.sqrt(lastDx * lastDx + lastDz * lastDz) * MOVE_SPEED;
-        // Log para ver si el sistema detecta movimiento
-        if (vel > 0.01) console.log(`[Input Check] Velocidad detectada: ${vel.toFixed(2)}`);
-
         const v = playerVariant(localPlayerTeam.value || 'KNIGHT');
         const clips = v === 'guard' ? guardClips : paladinClips;
         updateMixerState(locMixer, vel, clips);
-      } else if (frameCount % 60 === 0 && localId.value) {
+      } else if (frameCount % 300 === 0 && localId.value && characterTemplates) {
         // Log cada 60 frames si no encontramos el mixer local
         console.warn(`[Anim] No se encontró mixer para localId: ${locId}. Disponibles:`, Array.from(mixers.keys()));
       }
